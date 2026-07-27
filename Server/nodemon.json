@@ -1,0 +1,6 @@
+{
+  "watch": ["index.js", "dockerCommand.js"],
+  "ext": "js,mjs,cjs",
+  "ignore": ["jobs/**", "uploads/**", "../uploads/**"],
+  "signal": "SIGTERM"
+}

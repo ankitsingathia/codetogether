@@ -1,0 +1,19 @@
+{
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon --config nodemon.json index.js",
+    "dev:clean": "kill-port 3000 && nodemon --config nodemon.json index.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.38.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "kill-port": "^2.0.1",
+    "nodemon": "^3.1.11"
+  }
+}

@@ -1,6 +1,8 @@
 # 🚀 CodeBin - Real Time Collaborative Code Editor 
 CodeBin is a real-time collaborative code editor that allows multiple users to write, edit, and execute code together in shared rooms. It focuses on functionality, performance, and real-time collaboration.
-## 🌐 Live Demo: https://codebin-11.duckdns.org/
+> **The hosted demo is currently offline.** CodeBin runs locally in a few
+> minutes — see [Getting Started](#-getting-started). Open two browser
+> windows on the same room to see the collaboration features work.
 ## ✨ Features
 
 - **Real-time Collaboration** – Multiple users can edit code simultaneously

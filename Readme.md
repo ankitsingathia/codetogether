@@ -1,167 +1,181 @@
-# 🚀 CodeBin - Real Time Collaborative Code Editor 
-CodeBin is a real-time collaborative code editor that allows multiple users to write, edit, and execute code together in shared rooms. It focuses on functionality, performance, and real-time collaboration.
-> **The hosted demo is currently offline.** CodeBin runs locally in a few
-> minutes — see [Getting Started](#-getting-started). Open two browser
-> windows on the same room to see the collaboration features work.
-## ✨ Features
+# CodeTogether
 
-- **Real-time Collaboration** – Multiple users can edit code simultaneously
+A real-time collaborative code editor. Multiple users join a room, edit the
+same Monaco buffer over a raw Socket.IO connection, and can pull an AI code
+review or ask a room-aware coding assistant — all without a database, since
+room state only needs to live as long as the room does.
 
-- **Room-based Architecture** – Each room is isolated with its own state
+**Live:**
+[Client](https://codetogether-client.onrender.com) ·
+[Server](https://codetogether-rqqk.onrender.com)
 
-- **Duplicate Username Prevention (Race-Condition Safe)** – Usernames are validated server-side at join time. If two users attempt to join a room simultaneously with the same username, only one request is accepted atomically.
+> Free-tier hosting — the server spins down after ~15 minutes idle and takes
+> 30-50s to wake on the first request. The **Run** button (Java/Python/C++
+> execution) works locally but not on the hosted demo — see
+> [Code execution](#code-execution) below for why.
 
-- **Multi-Language Support**  – Java, Python, C++
+## Architecture
 
-- **Live Code Sync** – Monaco Editor synced via Socket.IO
+```
+Client (Vite + React, Static Site)          Server (Express + Socket.IO, Web Service)
+┌─────────────────────────────┐             ┌──────────────────────────────────┐
+│ Editor.jsx                   │  socket.io  │ rooms = { [roomId]: {             │
+│  ├─ CodeEditor (Monaco)      │◄───────────►│   users, code, language,          │
+│  ├─ Console (stdin/stdout)   │  websocket  │   assistantMemory                 │
+│  ├─ CodeReview (Gemini)      │             │ } }                               │
+│  └─ CodeAssistant (Gemini)   │             │                                    │
+└─────────────────────────────┘             │ Gemini API ──► review / assistant │
+                                             │ child_process.spawn ──► docker run│
+                                             └──────────────────────────────────┘
+```
 
-- **Shared Console / Terminal**
+There's no database. `rooms` is an in-memory object on the server, keyed by
+room ID; it's created on the first `join-room` and deleted when the last
+user disconnects. The one thing that *is* persisted to disk is AI assistant
+memory per room (`Server/uploads/assistant-memory/<roomId>.json`), so a
+reload mid-conversation doesn't lose context — but it's deleted the moment
+the room empties out, same lifecycle as everything else.
 
-  - Output visible to all users
+## Features
 
-  - Input shared in real time
+- **Real-time sync** — `code-change` events are broadcast to everyone else
+  in the room; there's no operational-transform or CRDT layer, so this is
+  last-write-wins, not conflict-free merging.
+- **Room-scoped usernames** — join is rejected server-side if the username
+  is already taken in that room, checked atomically against the room's user
+  list rather than trusting the client.
+- **AI code review** — sends the current buffer to Gemini
+  (`gemini-2.5-flash-lite`, with `gemini-3.1-flash-lite` as an automatic
+  fallback on quota/rate-limit errors) and broadcasts the markdown review to
+  the whole room.
+- **AI coding assistant with memory** — each room keeps a running summary +
+  recent-turns window. When the recent turns cross a size threshold, older
+  ones get compressed into the summary via a second Gemini call, so long
+  sessions don't blow up the prompt.
+- **Sandboxed code execution** (local only) — `run-code` writes the
+  submitted source to a per-job temp directory and runs it inside a locked-down
+  container: `--network none`, `--memory=256m`, `--cpus=1`,
+  `--pids-limit=64`, 5-second timeout, directory cleaned up after. See
+  [`Server/dockerCommand.js`](Server/dockerCommand.js).
 
-- **Dark / Light Theme** – Context-based theme management
+## Code execution
 
-- **File Download** – Download current code with correct extension
+`run-code` shells out to `docker run` directly — it needs a real Docker
+daemon on the box the server is running on. Render's free web services (and
+most PaaS free tiers) don't grant containers access to run nested Docker, so
+on the hosted demo this fails closed: the console shows `docker: not found`
+instead of executing anything. Everything else — sync, rooms, AI review, AI
+assistant — runs fine there, since none of that touches Docker.
 
-- **AI Code Review (Gemini)** – Generate markdown-based code review with quality rating, issue detection, and suggested fixes
+To get code execution working, run the server locally with Docker Desktop
+installed (see below), or deploy the server to a host with a real Docker
+daemon (a VPS with Docker installed, not a PaaS free tier).
 
-- **AI Coding Assistant (Gemini)** – Multi-turn, room-aware chat with per-user attribution, compressed memory, and shared responses
+## Getting started
 
-- **Fast UI** – Minimal, clean, performance-focused design
+**Prerequisites:** Node.js 18+, and Docker (only if you want the Run button
+to work).
 
-- **Auto-reconnect Support** – Handled by Socket.IO
-
-# 🏗 Architecture Diagram
-
-<img src="./uploads/image.png" alt="Alt text description" width="700" height="600">
-
-
-<img src="./uploads/image2.png" alt="Alt text description" width="800" height="650">
-
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Node.js (v16 or later)
-- Docker (for code execution feature)
-- npm or yarn
-
-### Installation
-
-1. Clone the repository:
 ```bash
 git clone https://github.com/ankitsingathia/codetogether.git
-cd codebin
+cd codetogether
 ```
 
-2. Install server dependencies:
+**Server**
+
 ```bash
-cd server
+cd Server
 npm install
 ```
 
-3. Install client dependencies:
+Create `Server/.env`:
+
+```env
+PORT=3001
+BACKEND_URL=http://localhost
+FRONTEND_ORIGIN=http://localhost:5173
+GEMINI_API_KEY=your_gemini_api_key
+```
+
+Get a key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+— required for AI review/assistant, not for editing or sync.
+
 ```bash
-cd ../client
+npm run dev
+```
+
+**Client**
+
+```bash
+cd Client
 npm install
 ```
 
-### Configuration
+Create `Client/.env`:
 
-1. Create a `.env` file in the server directory:
 ```env
-PORT = 3001
-BACKEND_URL = http://localhost
-FRONTEND_ORIGIN = http://localhost:5173
-GEMINI_API_KEY = your_gemini_api_key
+VITE_SOCKET_URL=http://localhost:3001
 ```
 
-2. Create a `.env` file in the client directory:
-```env
-VITE_SOCKET_URL = http://localhost:3001
-```
-
-### Running the Application
-
-1. Start the server:
 ```bash
-cd server
 npm run dev
 ```
 
-2. Start the client:
-```bash
-cd client
-npm run dev
+Open two browser windows at `http://localhost:5173`, join the same room from
+both, and edit — changes should sync instantly between them.
+
+## Deploying your own instance
+
+Both services deploy free on Render:
+
+| Service | Type | Root | Build | Start |
+|---|---|---|---|---|
+| Server | Web Service | `Server` | `npm install` | `npm start` |
+| Client | Static Site | `Client` | `npm install && npm run build` | publish `dist` |
+
+Env vars: `GEMINI_API_KEY` on the server; `VITE_SOCKET_URL` on the client set
+to the server's URL; then `FRONTEND_ORIGIN` on the server set to the
+client's URL once you have it (the server rejects any Socket.IO origin not
+in this list — see `isAllowedOrigin` in
+[`Server/index.js`](Server/index.js)).
+
+## Tech stack
+
+**Client** — React 18, Vite, Socket.IO client, Monaco Editor, Tailwind CSS,
+react-markdown + remark-gfm for rendering review output, react-router-dom.
+
+**Server** — Node.js, Express, Socket.IO, `@google/genai` (Gemini), UUID for
+job/room IDs, dotenv.
+
+## Project structure
+
+```
+Server/
+├── index.js            Socket.IO event handlers, room state, Gemini calls
+├── dockerCommand.js     Per-language `docker run` command builder
+└── uploads/
+    └── assistant-memory/  Per-room AI conversation memory (JSON)
+
+Client/
+└── src/
+    ├── pages/           Home, CreateRoom, Editor
+    ├── components/       CodeEditor, Console, CodeReview, CodeAssistant
+    ├── layouts/          AppLayout, EditorLayout
+    ├── lib/RoomSocket.js  Thin wrapper over the socket.io-client instance
+    └── contexts/ThemeContext.jsx
 ```
 
-3. Access the application at `http://localhost:5173`
+## Known limitations
 
-### Using AI in the Editor
+- **Last-write-wins sync, not CRDT.** Two people typing in the exact same
+  spot at the exact same moment can produce a jumbled result. Fine for a
+  pair coding on a call; wouldn't hold up at Google-Docs-style concurrent
+  editing scale.
+- **Room state is in-memory.** A server restart drops every active room.
+  There's no reconnect-and-resume across a redeploy.
+- **No auth.** Anyone with the room link and a free username can join.
+  Rooms are unlisted, not private.
 
-1. Join or create a room.
-2. Write or paste code in Monaco editor.
-3. Use **AI Code Review** to analyze current code.
-4. Use **AI Assistant** to ask targeted coding questions.
-5. Review shared AI responses with all participants in the room.
+## Contact
 
-## AI Chat Feature (Implemented)
-
-### What it does
-
-- **Room-scoped memory**: Each room has its own AI chat memory. One room never reads another room's memory.
-- **Per-user attribution**: Each chat turn stores who asked the question and who the assistant is replying to.
-- **Multi-turn continuity**: Assistant prompt includes room summary + recent turns + latest code + latest question.
-- **Automatic compression**: Older chat turns are summarized when history grows too large, while recent turns stay detailed.
-- **Shared assistant stream**: AI started/result events are broadcast to the room so all collaborators see context.
-- **Persistent while room is active**: Memory is written to disk per room for reconnect/reload continuity.
-- **Cleanup on empty room**: When last user disconnects from a room, that room's stored AI memory is deleted.
-- **Model fallback for quota/rate-limit**: Backend tries primary Gemini model first, then falls back automatically on quota/rate-limit errors.
-
-### Memory lifecycle
-
-1. On room join, backend loads room memory from disk and sends assistant history to client.
-2. On each assistant query, backend appends the new turn (askedBy/replyingTo/question/answer).
-3. If history crosses thresholds (turn count or char budget), backend compresses older turns into summary.
-4. Updated memory is persisted to disk for that room.
-5. When room becomes empty, backend deletes that room memory file.
-
-### Why this helps
-
-- Better answer quality in long conversations
-- Stable context across reconnects in active sessions
-- Lower prompt size over time through summary compression
-- Clean isolation and privacy between rooms
-
-## Demo
-
-<img src="./uploads/demo1.png" alt="Alt text description" width="1200" height="600">
-
-
-<img src="./uploads/demo2.png" alt="Alt text description" width="800" height="650">
-
-## 🛠 Tech Stack
-### Frontend
-- React 18
-- Socket.IO Client
-- Tailwind CSS
-- Monaco Editor
-- Vite
-- Lucide Icons
-
-### Backend
-- Node.js
-- Express
-- Socket.IO
-- Docker SDK
-- dotenv
-
-### Development Tools
-- Git
-- Docker
-
-## 📧 Contact
-
-Ankit Singathia - https://github.com/ankitsingathia
+Ankit Singathia — [github.com/ankitsingathia](https://github.com/ankitsingathia)

@@ -16,17 +16,26 @@ room state only needs to live as long as the room does.
 
 ## Architecture
 
-```
-Client (Vite + React, Static Site)          Server (Express + Socket.IO, Web Service)
-┌─────────────────────────────┐             ┌──────────────────────────────────┐
-│ Editor.jsx                   │  socket.io  │ rooms = { [roomId]: {             │
-│  ├─ CodeEditor (Monaco)      │◄───────────►│   users, code, language,          │
-│  ├─ Console (stdin/stdout)   │  websocket  │   assistantMemory                 │
-│  ├─ CodeReview (Gemini)      │             │ } }                               │
-│  └─ CodeAssistant (Gemini)   │             │                                    │
-└─────────────────────────────┘             │ Gemini API ──► review / assistant │
-                                             │ child_process.spawn ──► docker run│
-                                             └──────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Client["Client — Vite + React (Static Site)"]
+        Editor["Editor.jsx"]
+        CodeEditor["CodeEditor\n(Monaco)"]
+        Console["Console\n(stdin/stdout)"]
+        CodeReview["CodeReview"]
+        CodeAssistant["CodeAssistant"]
+        Editor --> CodeEditor & Console & CodeReview & CodeAssistant
+    end
+
+    subgraph Server["Server — Express + Socket.IO (Web Service)"]
+        Rooms[["rooms[roomId] =\nusers, code, language,\nassistantMemory"]]
+        Gemini["Gemini API\nreview / assistant"]
+        Docker["child_process.spawn\n→ docker run"]
+        Rooms --> Gemini
+        Rooms --> Docker
+    end
+
+    Client <-->|"Socket.IO\n(WebSocket)"| Rooms
 ```
 
 There's no database. `rooms` is an in-memory object on the server, keyed by

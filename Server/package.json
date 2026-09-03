@@ -1,6 +1,7 @@
 {
   "type": "module",
   "scripts": {
+    "start": "node index.js",
     "dev": "nodemon --config nodemon.json index.js",
     "dev:clean": "kill-port 3000 && nodemon --config nodemon.json index.js"
   },

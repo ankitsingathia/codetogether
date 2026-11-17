@@ -64,7 +64,7 @@ empties, like everything else.
   temp folder for that job and runs it in a Docker container with
   `--network none`, `--memory=256m`, `--cpus=1`, `--pids-limit=64` and a
   5-second timeout, then deletes the folder. See
-  [`Server/dockerCommand.js`](Server/dockerCommand.js).
+  [`Server/src/execution/dockerCommand.js`](Server/src/execution/dockerCommand.js).
 - **Runs without a Gemini key.** Editing, rooms and sync work without one. Review
   and assistant requests then get a "key missing" error instead of an answer.
 
@@ -170,7 +170,7 @@ Both services deploy free on Render:
 Set `GEMINI_API_KEY` on the server and `VITE_SOCKET_URL` on the client (the
 server's URL). Once the client has a URL, set `FRONTEND_ORIGIN` on the server to
 it. The server rejects Socket.IO connections from any other origin (see
-`isAllowedOrigin` in [`Server/index.js`](Server/index.js)).
+[`Server/src/cors.js`](Server/src/cors.js)).
 
 ## Tech stack
 
@@ -184,8 +184,15 @@ job and room IDs, dotenv. Tests use Node's built-in test runner.
 
 ```
 Server/
-├── index.js             Socket.IO event handlers, room state, Gemini calls
-├── dockerCommand.js     Builds the `docker run` command for each language
+├── index.js             Starts the server
+├── src/
+│   ├── server.js        Express + Socket.IO setup, wires the handlers
+│   ├── config.js        Environment settings
+│   ├── cors.js          Which origins may connect
+│   ├── rooms.js         Room state and membership
+│   ├── sockets/         Event handlers: room, execution, assistant
+│   ├── execution/       Builds the `docker run` command for each language
+│   └── ai/              Gemini calls and the assistant's per-room memory
 ├── test/                Socket-level tests against the running server
 └── uploads/             Assistant memory per room, created at runtime (not in git)
 

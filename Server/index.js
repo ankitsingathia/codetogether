@@ -1,7 +1,7 @@
 import { config } from "./src/config.js"
 import { createServer } from "./src/server.js"
 
-const { server } = createServer()
+const { server, close } = createServer()
 
 server.on("error", (error) => {
   if (error?.code === "EADDRINUSE") {
@@ -14,4 +14,11 @@ server.on("error", (error) => {
 
 server.listen(config.port, "0.0.0.0", () => {
   console.log(`Server running on ${config.backendUrl}:${config.port}`)
+})
+
+// Render and most hosts send SIGTERM before stopping an instance. Closing the
+// sockets lets clients reconnect to another instance straight away.
+process.on("SIGTERM", async () => {
+  await close()
+  server.close(() => process.exit(0))
 })

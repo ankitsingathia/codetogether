@@ -5,7 +5,6 @@ import { v4 as uuid } from "uuid"
 import { JobQueue, QueueFullError } from "../execution/queue.js"
 import { runJob } from "../execution/runner.js"
 import { LIMITS, byteLength, rateLimiter } from "../limits.js"
-import { codeOf, getRoom, isMember, memberName } from "../rooms.js"
 
 // One queue for the whole server: at most RUN_CONCURRENCY containers at once.
 export const runQueue = new JobQueue({
@@ -28,17 +27,19 @@ export function stopRunsFor(socketId) {
 
 const seconds = (ms) => Math.ceil(ms / 1000)
 
-export function registerExecutionHandlers(io, socket) {
+// How long the room's run lock lasts if a server dies without releasing it:
+// long enough to cover a wait in the queue plus the run itself.
+const RUN_LOCK_MS = 2 * 60 * 1000
+
+export function registerExecutionHandlers(io, socket, { rooms, store }) {
   // Runs the room's current document, not text sent by the client, so what
   // runs is what everyone sees.
   socket.on("run-code", async ({ roomId } = {}) => {
-    const room = getRoom(roomId)
-    if (!room || !isMember(room, socket.id)) return
+    const room = socket.data.roomId === roomId ? rooms.get(roomId) : undefined
+    if (!room) return
     const deny = (message) => socket.emit("run-denied", { message })
 
-    if (room.isRunning) return deny("Code is already running in this room.")
-
-    const code = codeOf(room)
+    const code = rooms.codeOf(room)
     if (!code.trim()) return deny("There is no code to run.")
     if (byteLength(code) > LIMITS.codeBytes) {
       return deny(`The code is too long to run (limit ${LIMITS.codeBytes / 1024} KB).`)
@@ -47,10 +48,13 @@ export function registerExecutionHandlers(io, socket) {
     const wait = runLimiter.take(socket.id)
     if (wait) return deny(`Too many runs. Try again in ${seconds(wait)} s.`)
 
+    // One run per room at a time, across all servers: the lock is in the store.
+    if (!(await store.acquireRunLock(roomId, socket.id, RUN_LOCK_MS))) {
+      return deny("Code is already running in this room.")
+    }
+
     const language = room.language
-    room.isRunning = true
-    room.runningBy = { socketId: socket.id, username: memberName(room, socket.id) }
-    io.to(roomId).emit("execution-started", { username: room.runningBy.username })
+    io.to(roomId).emit("execution-started", { username: socket.data.username })
 
     const say = (output) => io.to(roomId).emit("program-output", { output })
     const entry = { roomId }
@@ -78,11 +82,7 @@ export function registerExecutionHandlers(io, socket) {
       else if (error?.message !== "Cancelled") say(`\n❌ ${error?.message || "The run failed to start."}\n`)
     } finally {
       if (active.get(socket.id) === entry) active.delete(socket.id)
-      const current = getRoom(roomId)
-      if (current) {
-        current.isRunning = false
-        current.runningBy = null
-      }
+      await store.releaseRunLock(roomId, socket.id).catch(() => {})
       io.to(roomId).emit("execution-ended")
     }
   })

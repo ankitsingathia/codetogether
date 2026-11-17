@@ -1,62 +1,23 @@
 // The assistant's per-room conversation memory: the last few turns verbatim,
-// older turns compressed into a summary by Gemini. Kept on disk so a server
-// restart doesn't lose it while the room is still open.
-import fs from "fs"
-import path from "path"
-
+// older turns compressed into a summary by Gemini. It lives in the store with
+// the rest of the room, so every server sees the same conversation.
 import { compressHistory } from "./gemini.js"
 
-const MEMORY_DIR = path.join("uploads", "assistant-memory")
 const MAX_RECENT_TURNS = 8
 const MAX_RECENT_CHARS = 1200
 const KEEP_TURNS = 4
 
 export function createMemory() {
-  return { summary: "", recentTurns: [], compressionInProgress: false, updatedAt: Date.now() }
+  return { summary: "", recentTurns: [], updatedAt: Date.now() }
 }
 
-function memoryPath(roomId) {
-  return path.join(MEMORY_DIR, `${roomId}.json`)
-}
-
-function ensureDir() {
-  fs.mkdirSync(MEMORY_DIR, { recursive: true })
-}
-
-export function loadMemory(roomId) {
-  ensureDir()
-  const file = memoryPath(roomId)
-  if (!fs.existsSync(file)) return createMemory()
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"))
-    return {
-      summary: typeof parsed.summary === "string" ? parsed.summary : "",
-      recentTurns: Array.isArray(parsed.recentTurns) ? parsed.recentTurns : [],
-      compressionInProgress: false,
-      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now()
-    }
-  } catch (error) {
-    console.error("Failed to load assistant memory:", error.message)
-    return createMemory()
-  }
-}
-
-export function saveMemory(roomId, memory) {
-  try {
-    ensureDir()
-    const { summary, recentTurns, updatedAt } = memory
-    fs.writeFileSync(memoryPath(roomId), JSON.stringify({ summary, recentTurns, updatedAt }, null, 2), "utf-8")
-  } catch (error) {
-    console.error("Failed to persist assistant memory:", error.message)
-  }
-}
-
-export function deleteMemory(roomId) {
-  try {
-    fs.rmSync(memoryPath(roomId), { force: true })
-  } catch (error) {
-    console.error("Failed to delete assistant memory:", error.message)
+// Reads whatever the store holds, tolerating a missing or malformed value.
+export function normalizeMemory(raw) {
+  if (!raw || typeof raw !== "object") return createMemory()
+  return {
+    summary: typeof raw.summary === "string" ? raw.summary : "",
+    recentTurns: Array.isArray(raw.recentTurns) ? raw.recentTurns : [],
+    updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now()
   }
 }
 
@@ -73,10 +34,8 @@ export function toClientMessages(turns) {
 }
 
 // Once the recent turns grow past the limits, folds all but the last few into
-// the summary.
-export async function compactIfNeeded(roomId, memory) {
-  if (!memory || memory.compressionInProgress) return
-
+// the summary. Changes `memory` in place; the caller saves it.
+export async function compactIfNeeded(memory) {
   const recentChars = memory.recentTurns.reduce(
     (total, turn) => total + (turn.question?.length || 0) + (turn.answer?.length || 0) + (turn.error?.length || 0),
     0
@@ -86,16 +45,10 @@ export async function compactIfNeeded(roomId, memory) {
   const older = memory.recentTurns.slice(0, Math.max(0, memory.recentTurns.length - KEEP_TURNS))
   if (older.length === 0) return
 
-  memory.compressionInProgress = true
-  try {
-    const compressed = await compressHistory(memory.summary, older)
-    if (compressed.success) {
-      memory.summary = compressed.summary
-      memory.recentTurns = memory.recentTurns.slice(-KEEP_TURNS)
-      memory.updatedAt = Date.now()
-      saveMemory(roomId, memory)
-    }
-  } finally {
-    memory.compressionInProgress = false
+  const compressed = await compressHistory(memory.summary, older)
+  if (compressed.success) {
+    memory.summary = compressed.summary
+    memory.recentTurns = memory.recentTurns.slice(-KEEP_TURNS)
+    memory.updatedAt = Date.now()
   }
 }

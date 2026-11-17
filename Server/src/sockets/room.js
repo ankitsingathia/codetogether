@@ -1,21 +1,7 @@
 // Joining, leaving, language and the shared document.
-import * as Y from "yjs"
-import { applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness"
-
-import { saveMemory, toClientMessages } from "../ai/memory.js"
+import { normalizeMemory, toClientMessages } from "../ai/memory.js"
 import { LIMITS, isRoomId, isUsername } from "../limits.js"
-import {
-  assistantMemory, defaultCode, fullState, getOrCreateRoom, getRoom, isMember, isNameTaken,
-  leaveAll, replaceCode
-} from "../rooms.js"
-
-function sendAssistantHistory(socket, room) {
-  const memory = assistantMemory(room)
-  socket.emit("assistant-history", {
-    messages: toClientMessages(memory.recentTurns),
-    summary: memory.summary
-  })
-}
+import { defaultCode } from "../rooms.js"
 
 // Socket.IO delivers binary as a Buffer on the server; Yjs wants a Uint8Array.
 // Oversized messages are refused before Yjs parses them.
@@ -26,16 +12,44 @@ function toBytes(update) {
   return bytes && bytes.length <= LIMITS.updateBytes ? bytes : null
 }
 
-export function registerRoomHandlers(io, socket, { onLeave }) {
-  socket.on("check-username", ({ roomId, username } = {}) => {
-    if (!isRoomId(roomId) || !isUsername(username)) {
-      socket.emit("username-status", { available: false })
-      return
-    }
-    socket.emit("username-status", { available: !isNameTaken(getRoom(roomId), username) })
+const logFailure = (what) => (error) => console.error(`${what} failed:`, error?.message || error)
+
+export function registerRoomHandlers(io, socket, { rooms, store, onLeave }) {
+  // The room this socket joined, if it is that room and this server has it.
+  const myRoom = (roomId) => (socket.data.roomId === roomId ? rooms.get(roomId) : undefined)
+
+  async function sendAssistantHistory(roomId) {
+    const memory = normalizeMemory(await store.getAssistant(roomId))
+    socket.emit("assistant-history", { messages: toClientMessages(memory.recentTurns), summary: memory.summary })
+  }
+
+  async function isNameTaken(roomId, username) {
+    const wanted = username.toLowerCase()
+    return (await rooms.members(roomId)).some((m) => m.username.toLowerCase() === wanted)
+  }
+
+  async function leave() {
+    const roomId = socket.data.roomId
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    const cursorRemoval = room ? rooms.removeCursors(room, socket.id) : null
+
+    socket.data.roomId = undefined
+    socket.data.username = undefined
+    socket.leave(roomId)
+
+    const members = await rooms.members(roomId)
+    io.to(roomId).emit("members-update", members)
+    if (cursorRemoval) io.to(roomId).emit("awareness-update", { update: cursorRemoval })
+    await rooms.afterLeave(roomId, members.length)
+  }
+
+  socket.on("check-username", async ({ roomId, username } = {}) => {
+    const valid = isRoomId(roomId) && isUsername(username)
+    socket.emit("username-status", { available: valid && !(await isNameTaken(roomId, username)) })
   })
 
-  socket.on("join-room", ({ roomId, username } = {}) => {
+  socket.on("join-room", async ({ roomId, username } = {}) => {
     if (!isRoomId(roomId)) {
       socket.emit("join-error", { message: "Room IDs look like abc-defg-hij." })
       return
@@ -44,93 +58,99 @@ export function registerRoomHandlers(io, socket, { onLeave }) {
       socket.emit("join-error", { message: "Names are 1-20 letters, numbers, spaces, dots, dashes or underscores." })
       return
     }
-    const room = getOrCreateRoom(roomId)
-    const alreadyIn = isMember(room, socket.id)
 
-    if (!alreadyIn && isNameTaken(room, username)) {
-      socket.emit("join-error", { message: "Username already taken" })
-      return
+    try {
+      // Joining again from the same socket just resends the room's state.
+      const alreadyIn = socket.data.roomId === roomId
+      if (!alreadyIn) {
+        if (socket.data.roomId) await leave()
+        if (await isNameTaken(roomId, username)) {
+          socket.emit("join-error", { message: "Username already taken" })
+          return
+        }
+      }
+
+      const room = await rooms.open(roomId)
+      if (!socket.connected) {
+        // Left while the room was loading.
+        await rooms.afterLeave(roomId, (await rooms.members(roomId)).length)
+        return
+      }
+
+      socket.data.roomId = roomId
+      socket.data.username ||= username
+      socket.join(roomId)
+      socket.emit("join-success", { roomId, username: socket.data.username })
+      io.to(roomId).emit("members-update", await rooms.members(roomId))
+
+      // The new member gets the whole document once, then only edits.
+      socket.emit("language-changed", { language: room.language })
+      socket.emit("yjs-update", { update: rooms.fullState(room) })
+      const cursors = rooms.cursors(room)
+      if (cursors) socket.emit("awareness-update", { update: cursors })
+
+      await sendAssistantHistory(roomId)
+    } catch (error) {
+      logFailure("join")(error)
+      socket.emit("join-error", { message: "Could not open the room. Try again in a moment." })
     }
-
-    // Joining again from the same socket just resends the room's state.
-    if (!alreadyIn) room.users.push({ socketId: socket.id, username })
-    socket.join(roomId)
-    socket.emit("join-success", { roomId, username })
-    io.to(roomId).emit("members-update", room.users)
-
-    // The new member gets the whole document once, then only edits.
-    socket.emit("language-changed", { language: room.language })
-    socket.emit("yjs-update", { update: fullState(room) })
-    const cursors = [...room.awareness.getStates().keys()]
-    if (cursors.length) {
-      socket.emit("awareness-update", { update: encodeAwarenessUpdate(room.awareness, cursors) })
-    }
-
-    saveMemory(roomId, assistantMemory(room))
-    sendAssistantHistory(socket, room)
   })
 
-  socket.on("request-room-state", ({ roomId } = {}) => {
-    const room = getRoom(roomId)
+  socket.on("request-room-state", async ({ roomId } = {}) => {
+    const room = myRoom(roomId)
     if (!room) {
-      socket.emit("room-state", { success: false, message: "Room not found" })
-      return
-    }
-    if (!isMember(room, socket.id)) {
       socket.emit("room-state", { success: false, message: "You are not in this room" })
       return
     }
-
-    socket.emit("room-state", { success: true, roomId, members: room.users, language: room.language })
-    sendAssistantHistory(socket, room)
+    socket.emit("room-state", { success: true, roomId, members: await rooms.members(roomId), language: room.language })
+    await sendAssistantHistory(roomId)
   })
 
-  // An edit from one member: merge it into the room's copy and pass it on.
+  // An edit from one member: merge it here, pass it on to the room, then
+  // record it and tell the other servers.
   socket.on("yjs-update", ({ roomId, update } = {}) => {
-    const room = getRoom(roomId)
+    const room = myRoom(roomId)
     const bytes = toBytes(update)
-    if (!room || !bytes || !isMember(room, socket.id)) return
+    if (!room || !bytes) return
 
+    let saved
     try {
-      Y.applyUpdate(room.doc, bytes, socket.id)
+      saved = rooms.applyEdit(room, bytes, socket.id)
     } catch {
-      return // not a valid Yjs update; drop it rather than relay it
+      return // not a valid Yjs update; drop it rather than relay or store it
     }
     socket.to(roomId).emit("yjs-update", { update: bytes })
+    saved.catch(logFailure("saving an edit"))
   })
 
   socket.on("awareness-update", ({ roomId, update } = {}) => {
-    const room = getRoom(roomId)
+    const room = myRoom(roomId)
     const bytes = toBytes(update)
-    if (!room || !bytes || !isMember(room, socket.id)) return
+    if (!room || !bytes) return
 
     try {
-      applyAwarenessUpdate(room.awareness, bytes, socket.id)
+      rooms.applyCursor(room, bytes, socket.id)
     } catch {
       return
     }
     socket.to(roomId).emit("awareness-update", { update: bytes })
   })
 
-  socket.on("change-language", ({ roomId, language } = {}) => {
-    const room = getRoom(roomId)
-    if (!room || !isMember(room, socket.id) || !defaultCode(language)) return
+  socket.on("change-language", async ({ roomId, language } = {}) => {
+    const room = myRoom(roomId)
+    if (!room || !defaultCode(language) || language === room.language) return
 
-    room.language = language
-    const update = replaceCode(room, defaultCode(language))
-    io.to(roomId).emit("language-changed", { language })
-    io.to(roomId).emit("yjs-update", { update })
+    try {
+      const update = await rooms.changeLanguage(room, language)
+      io.to(roomId).emit("language-changed", { language })
+      io.to(roomId).emit("yjs-update", { update })
+    } catch (error) {
+      logFailure("changing language")(error)
+    }
   })
 
   socket.on("disconnect", () => {
     onLeave(socket.id)
-    for (const { room, awarenessIds } of leaveAll(socket.id)) {
-      io.to(room.roomId).emit("members-update", room.users)
-      if (awarenessIds.length) {
-        io.to(room.roomId).emit("awareness-update", {
-          update: encodeAwarenessUpdate(room.awareness, awarenessIds)
-        })
-      }
-    }
+    leave().catch(logFailure("leaving"))
   })
 }

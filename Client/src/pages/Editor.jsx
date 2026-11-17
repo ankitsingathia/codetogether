@@ -23,8 +23,6 @@ import {
   sendProgramInput,
   disconnectSocket,
   changeLanguage,
-  onSyncCode,
-  onCodeChange,
   onLanguageChanged,
   executionEnded,
   executionStarted,
@@ -36,6 +34,7 @@ import {
   onAssistantResult,
   onAssistantHistory
 } from "../lib/RoomSocket"
+import { createCollab } from "../lib/collab"
 
 export default function EditorPage() {
   const navigate = useNavigate()
@@ -45,8 +44,9 @@ export default function EditorPage() {
   const socketRef = useRef(null)
   const editorRef = useRef(null)
 
-  const [code, setCode] = useState("")
-  const isRemoteUpdate = useRef(false)
+  // The room's shared document. Created per visit, before joining, so the
+  // first state from the server has somewhere to go.
+  const [collab, setCollab] = useState(null)
 
   const [runningUser, setRunningUser] = useState(null)
   const [members, setMembers] = useState([])
@@ -75,17 +75,15 @@ export default function EditorPage() {
     socketRef.current = connectSocket()
     if (!socketRef.current) return
 
+    const roomCollab = createCollab(socketRef.current, roomId, location.state.username)
+    setCollab(roomCollab)
+
     onMembersUpdate(setMembers)
 
-    onRoomState(({ success, members: roomMembers, code: roomCode, language: roomLanguage }) => {
+    onRoomState(({ success, members: roomMembers, language: roomLanguage }) => {
       if (!success) return
       if (Array.isArray(roomMembers)) {
         setMembers(roomMembers)
-      }
-      if (typeof roomCode === "string") {
-        isRemoteUpdate.current = true
-        setCode(roomCode)
-        isRemoteUpdate.current = false
       }
       if (typeof roomLanguage === "string") {
         setLanguage(roomLanguage)
@@ -93,6 +91,7 @@ export default function EditorPage() {
     })
 
     onJoinSuccess(() => {
+      roomCollab.announce()
       requestRoomState(roomId)
     })
 
@@ -106,23 +105,8 @@ export default function EditorPage() {
       setRunningUser(null)
     })
 
-    onSyncCode(({ code, language }) => {
-      isRemoteUpdate.current = true
-      setCode(code)
+    onLanguageChanged(({ language }) => {
       setLanguage(language)
-      isRemoteUpdate.current = false
-    })
-
-    onCodeChange(({ code }) => {
-      if (isRemoteUpdate.current) return
-      setCode(code)
-    })
-
-    onLanguageChanged(({ language, code }) => {
-      isRemoteUpdate.current = true
-      setLanguage(language)
-      setCode(code)
-      isRemoteUpdate.current = false
     })
 
     onProgramOutput(({ output }) => {
@@ -173,25 +157,20 @@ export default function EditorPage() {
     joinRoom(roomId, location.state.username)
 
     return () => {
+      roomCollab.destroy()
+      setCollab(null)
       disconnectSocket()
     }
   }, [location.state?.username, navigate, roomId])
 
-  const handleCodeChange = (value = "") => {
-    if (isRemoteUpdate.current) return
+  const currentCode = () => collab?.text.toString() || ""
 
-    setCode(value)
-
-    socketRef.current.emit("code-change", {
-      roomId,
-      code: value,
-    })
-  }
-
+  // Run, review and the assistant all use the server's copy of the document,
+  // so only the room id is sent.
   const handleRunCode = () => {
-    if (!code) return
+    if (!currentCode()) return
     setIsRunning(true)
-    const emitted = runCode(roomId, code, language)
+    const emitted = runCode(roomId)
     if (!emitted) {
       setIsRunning(false)
       setConsoleOutput((prev) => `${prev}\n[Error] Not connected to backend server. Please restart backend and try again.\n`)
@@ -215,7 +194,7 @@ export default function EditorPage() {
   }
 
   const downloadCode = () => {
-    const blob = new Blob([code])
+    const blob = new Blob([currentCode()])
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)
     a.download = `Main.${language}`
@@ -223,13 +202,13 @@ export default function EditorPage() {
   }
 
   const resetCode = () => {
-    handleCodeChange("")
+    collab?.clear()
   }
 
   const handleReviewCode = () => {
-    if (!code) return
+    if (!currentCode()) return
     setShowReview(true)
-    const emitted = reviewCode(roomId, code, language)
+    const emitted = reviewCode(roomId)
     if (!emitted) {
       setReviewData({
         success: false,
@@ -242,7 +221,7 @@ export default function EditorPage() {
   const handleAskAssistant = (question) => {
     if (!question || !question.trim()) return
     setShowAssistant(true)
-    const emitted = askCodingAssistant(roomId, code, language, question)
+    const emitted = askCodingAssistant(roomId, question)
     if (!emitted) {
       setIsAssistantLoading(false)
       setAssistantLoadingMeta(null)
@@ -466,10 +445,9 @@ export default function EditorPage() {
 
             <div className="flex-1 min-h-0 bg-white dark:bg-[#0f172a] overflow-hidden">
               <CodeEditor
-                value={code}
                 language={language}
+                collab={collab}
                 editorRef={editorRef}
-                onChange={handleCodeChange}
               />
             </div>
           </div>

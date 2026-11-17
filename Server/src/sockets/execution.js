@@ -5,7 +5,7 @@ import path from "path"
 import { v4 as uuid } from "uuid"
 
 import { getDockerCommand } from "../execution/dockerCommand.js"
-import { getRoom, memberName } from "../rooms.js"
+import { codeOf, getRoom, isMember, memberName } from "../rooms.js"
 
 const EXECUTION_TIMEOUT_MS = 5000
 const EXTENSIONS = { java: "java", python: "py", cpp: "cpp" }
@@ -31,9 +31,13 @@ export function stopRunsFor(socketId) {
 }
 
 export function registerExecutionHandlers(io, socket) {
-  socket.on("run-code", ({ roomId, code, language }) => {
+  // Runs the room's current document, not text sent by the client, so what
+  // runs is what everyone sees.
+  socket.on("run-code", ({ roomId }) => {
     const room = getRoom(roomId)
-    if (!room) return
+    if (!room || !isMember(room, socket.id)) return
+    const code = codeOf(room)
+    const language = room.language
 
     if (room.isRunning) {
       socket.emit("run-denied", { message: "Code is already running" })

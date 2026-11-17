@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { connectSocket, checkUsername, onJoinError, joinRoom, onJoinSuccess } from "../lib/RoomSocket"
+import { connectSocket, checkUsername } from "../lib/RoomSocket"
 import { Button } from "./../components/ui/Button"
 import { Input } from "./../components/ui/Input"
 import { Label } from "./../components/ui/Lebel"
@@ -42,7 +42,9 @@ export default function CreateRoom() {
     }
 
 
+    setLoading(true)
     const available = await checkUsername(roomId, username)
+    setLoading(false)
 
 
     if (!available) {
@@ -50,23 +52,9 @@ export default function CreateRoom() {
       return
     }
 
-    setLoading(true)
-
-
-    joinRoom(roomId, username)
-
-    onJoinSuccess(({ roomId }) => {
-      setLoading(false)
-      navigate(`/editor/${roomId}`, {
-        state: { username }
-      })
-    })
-
-    onJoinError(({ message }) => {
-      setLoading(false)
-      setError(message)
-    })
-
+    // The editor page does the actual join, once its shared document is
+    // ready to receive the room's state.
+    navigate(`/editor/${roomId}`, { state: { username } })
   }
 
   const handleCreateRoom = () => {

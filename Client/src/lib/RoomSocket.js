@@ -66,26 +66,12 @@ export function onRoomState(cb) {
   socket.on("room-state", cb)
 }
 
-export function runCode(roomId, code, language) {
-  // const s = connectSocket()
-
-  // if (!s.connected) {
-  //   console.warn("Socket not connected yet, waiting...")
-  //   s.once("connect", () => {
-  //     console.log("Socket connected, emitting run-code")
-  //     s.emit("run-code", { code, language })
-  //   })
-  //   return
-  // }
-
+export function runCode(roomId) {
   if (!socket || !socket.connected) {
     console.warn("Socket not connected")
     return false
   }
-
-  console.log("Emitting run-code event", code, "  ::", language);
-  console.log("Socket in runCode:", socket)
-  socket.emit("run-code", { roomId, code, language })
+  socket.emit("run-code", { roomId })
   return true
 }
 
@@ -99,22 +85,8 @@ export function executionEnded(cb) {
   socket.on("execution-ended", cb)
 }
 
-export function onSyncCode(cb) {
-  socket.off("sync-code")
-  socket.on("sync-code", cb)
-}
-
 export function onProgramOutput(callback) {
   socket.on("program-output", callback)
-}
-
-export function onCodeChange(cb) {
-  socket.off("code-change")
-  socket.on("code-change", cb)
-}
-
-export function emitCodeChange(roomId, code) {
-  socket.emit("code-change", { roomId, code })
 }
 
 export function onLanguageChanged(cb) {
@@ -131,12 +103,12 @@ export function changeLanguage(roomId, language) {
 }
 
 // Gemini Code Review Functions
-export function reviewCode(roomId, code, language) {
+export function reviewCode(roomId) {
   if (!socket || !socket.connected) {
     console.warn("Socket not connected")
     return false
   }
-  socket.emit("review-code", { roomId, code, language })
+  socket.emit("review-code", { roomId })
   return true
 }
 
@@ -150,12 +122,12 @@ export function onReviewResult(cb) {
   socket.on("review-result", cb)
 }
 
-export function askCodingAssistant(roomId, code, language, question) {
+export function askCodingAssistant(roomId, question) {
   if (!socket || !socket.connected) {
     console.warn("Socket not connected")
     return false
   }
-  socket.emit("assistant-query", { roomId, code, language, question })
+  socket.emit("assistant-query", { roomId, question })
   return true
 }
 
@@ -177,8 +149,6 @@ export function onAssistantHistory(cb) {
 export function disconnectSocket() {
   if (socket) {
     socket.off("room-state")
-    socket.off("sync-code")
-    socket.off("code-change")
     socket.off("language-changed")
     socket.off("program-output")
     socket.off("execution-started")

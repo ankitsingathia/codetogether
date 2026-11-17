@@ -48,8 +48,17 @@ empties, like everything else.
 
 ## Features
 
-- **Real-time sync.** Each `code-change` event is sent to everyone else in the
-  room. There is no operational transform or CRDT, so the last write wins.
+- **Real-time editing that merges.** The code is a [Yjs](https://yjs.dev)
+  document, a CRDT. Each client sends only the edits it made, and every copy
+  merges the same edits into the same text in any order, so two people typing
+  on the same line at the same moment both keep their work. (The first version
+  sent the whole file on every keystroke and the last one to arrive won.)
+- **Live cursors and per-person undo.** Each member's cursor and selection show
+  in their colour with their name. Ctrl+Z undoes only your own edits, not
+  someone else's. The Monaco binding is
+  [`Client/src/lib/monacoBinding.js`](Client/src/lib/monacoBinding.js).
+- **Run, review and the assistant use the server's copy** of the document, so
+  what runs is what everyone sees, not what one client claims the code is.
 - **Unique usernames per room.** The server rejects a join if the name is
   already taken in that room, ignoring case. The check happens on the server,
   not in the client.
@@ -145,7 +154,14 @@ browser tabs would. It checks that:
 - the server starts without a key
 - a new room starts with the Java template
 - usernames are unique within a room, ignoring case
-- an edit reaches the other members and isn't sent back to the sender
+- two clients typing at the same moment, in different places and at the same
+  position, end up with identical text that contains both people's edits, and
+  someone joining afterwards gets that same text
+- an edit isn't sent back to the person who made it
+- a socket that hasn't joined a room can't edit it, and a malformed update is
+  dropped without crashing the server
+- changing the language replaces the text for everyone
+- a member's cursor disappears for the others when they leave
 - a room resets once everyone has left
 - review and assistant requests without a key return an error and the server
   stays up

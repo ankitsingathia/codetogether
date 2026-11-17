@@ -12,7 +12,9 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "socket.io": "^4.8.3",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "kill-port": "^2.0.1",

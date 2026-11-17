@@ -1,19 +1,13 @@
-export function Input({
-  className = "",
-  ...props
-}) {
+export function Input({ className = "", ...props }) {
   return (
     <input
       autoComplete="off"
       spellCheck={false}
       className={`
-        w-full rounded-md border border-gray-300
-        bg-white text-gray-900
-        px-3 py-2 text-sm
-        placeholder-gray-400
-        focus:outline-none focus:ring-2 focus:ring-blue-500
-        dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100
-        dark:placeholder-gray-500
+        h-11 w-full rounded-md border border-line bg-panel px-3 text-[15px] text-ink
+        placeholder:text-muted/70
+        transition-colors focus:border-cobalt focus:outline-none focus:ring-3 focus:ring-cobalt/15
+        aria-[invalid=true]:border-danger
         ${className}
       `}
       {...props}

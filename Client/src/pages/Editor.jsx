@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react"
-import { useNavigate, useLocation, useParams } from "react-router-dom"
-import {
-  Code2, Copy, LogOut, Play, Download, RefreshCcw, Menu, X, Sparkles, Bot, Terminal
-} from "lucide-react"
+import { useLocation, useNavigate, useParams } from "react-router-dom"
+import { Check, Copy, Download, Eraser, LogOut, MessageSquareText, Play, Sparkles } from "lucide-react"
 
+import { Brand } from "../components/ui/Brand"
 import { Button } from "../components/ui/Button"
-import { Client } from "../components/ui/Client"
+import { Presence } from "../components/ui/Presence"
+import { ThemeToggle } from "../components/ThemeToggle"
 import { CodeEditor } from "../components/CodeEditor"
 import { Console } from "../components/Console"
 import { CodeReview } from "../components/CodeReview"
@@ -38,10 +38,19 @@ import {
 } from "../lib/RoomSocket"
 import { createCollab } from "../lib/collab"
 
+const LANGUAGES = [
+  { id: "java", label: "Java", file: "Main.java" },
+  { id: "cpp", label: "C++", file: "Main.cpp" },
+  { id: "python", label: "Python", file: "Main.py" },
+]
+
+const NOT_CONNECTED = "Not connected to the server. Check that it is running, then reload the page."
+
 export default function EditorPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { roomId } = useParams()
+  const username = location.state?.username
 
   const socketRef = useRef(null)
   const editorRef = useRef(null)
@@ -49,14 +58,15 @@ export default function EditorPage() {
   // The room's shared document. Created per visit, before joining, so the
   // first state from the server has somewhere to go.
   const [collab, setCollab] = useState(null)
+  // username -> cursor colour, from awareness, so avatars match carets.
+  const [cursorColors, setCursorColors] = useState({})
 
   const [runningUser, setRunningUser] = useState(null)
   const [members, setMembers] = useState([])
   const [language, setLanguage] = useState("java")
   const [consoleOutput, setConsoleOutput] = useState("")
   const [isRunning, setIsRunning] = useState(false)
-  const [showSidebar, setShowSidebar] = useState(false)
-  const [showConsole, setShowConsole] = useState(true)
+  const [copied, setCopied] = useState(false)
 
   const [showReview, setShowReview] = useState(false)
   const [isReviewing, setIsReviewing] = useState(false)
@@ -68,8 +78,11 @@ export default function EditorPage() {
   const [assistantLoadingMeta, setAssistantLoadingMeta] = useState(null)
   const [assistantMessages, setAssistantMessages] = useState([])
 
+  const file = LANGUAGES.find((l) => l.id === language)?.file || "Main"
+  const print = (line) => setConsoleOutput((prev) => `${prev}${prev && !prev.endsWith("\n") ? "\n" : ""}${line}\n`)
+
   useEffect(() => {
-    if (!location.state?.username) {
+    if (!username) {
       navigate("/create-room", { state: { roomId } })
       return
     }
@@ -77,19 +90,15 @@ export default function EditorPage() {
     socketRef.current = connectSocket()
     if (!socketRef.current) return
 
-    const roomCollab = createCollab(socketRef.current, roomId, location.state.username)
+    const roomCollab = createCollab(socketRef.current, roomId, username)
     setCollab(roomCollab)
 
     onMembersUpdate(setMembers)
 
     onRoomState(({ success, members: roomMembers, language: roomLanguage }) => {
       if (!success) return
-      if (Array.isArray(roomMembers)) {
-        setMembers(roomMembers)
-      }
-      if (typeof roomLanguage === "string") {
-        setLanguage(roomLanguage)
-      }
+      if (Array.isArray(roomMembers)) setMembers(roomMembers)
+      if (typeof roomLanguage === "string") setLanguage(roomLanguage)
     })
 
     onJoinSuccess(() => {
@@ -97,9 +106,9 @@ export default function EditorPage() {
       requestRoomState(roomId)
     })
 
-    executionStarted(({ username }) => {
+    executionStarted(({ username: who }) => {
       setIsRunning(true)
-      setRunningUser(username)
+      setRunningUser(who)
     })
 
     executionEnded(() => {
@@ -107,30 +116,22 @@ export default function EditorPage() {
       setRunningUser(null)
     })
 
-    onLanguageChanged(({ language }) => {
-      setLanguage(language)
-    })
+    onLanguageChanged(({ language: next }) => setLanguage(next))
 
     onRunDenied(({ message }) => {
       setIsRunning(false)
-      setConsoleOutput((prev) => `${prev}
-${message}
-`)
+      setConsoleOutput((prev) => `${prev}${message}\n`)
     })
 
     onExecutionQueued(({ position }) => {
-      setConsoleOutput((prev) => `${prev}Waiting for a free runner (number ${position} in line)...
-`)
+      setConsoleOutput((prev) => `${prev}Waiting for a free runner (number ${position} in line)…\n`)
     })
 
-    onProgramOutput(({ output }) => {
-      setConsoleOutput((prev) => prev + output)
-      setIsRunning(false)
-    })
+    onProgramOutput(({ output }) => setConsoleOutput((prev) => prev + output))
 
-    onReviewStarted(({ username }) => {
+    onReviewStarted(({ username: who }) => {
       setIsReviewing(true)
-      setReviewingUser(username)
+      setReviewingUser(who)
       setShowReview(true)
       setReviewData(null)
     })
@@ -140,15 +141,14 @@ ${message}
       setReviewData(result)
     })
 
-    onAssistantStarted(({ username, replyingTo, question }) => {
+    onAssistantStarted(({ username: who, replyingTo, question }) => {
       setIsAssistantLoading(true)
-      setAssistantLoadingMeta({ username, replyingTo: replyingTo || username, question })
+      setAssistantLoadingMeta({ username: who, replyingTo: replyingTo || who, question })
       setShowAssistant(true)
     })
 
     onAssistantHistory(({ messages }) => {
-      if (!Array.isArray(messages)) return
-      setAssistantMessages(messages)
+      if (Array.isArray(messages)) setAssistantMessages(messages)
     })
 
     onAssistantResult((result) => {
@@ -168,39 +168,60 @@ ${message}
       ])
     })
 
-    joinRoom(roomId, location.state.username)
+    joinRoom(roomId, username)
 
     return () => {
       roomCollab.destroy()
       setCollab(null)
       disconnectSocket()
     }
-  }, [location.state?.username, navigate, roomId])
+  }, [username, navigate, roomId])
+
+  useEffect(() => {
+    if (!collab) return
+    const update = () => {
+      const colors = {}
+      collab.awareness.getStates().forEach((state) => {
+        if (state.user?.name) colors[state.user.name] = state.user.color
+      })
+      setCursorColors(colors)
+    }
+    collab.awareness.on("change", update)
+    update()
+    return () => collab.awareness.off("change", update)
+  }, [collab])
 
   const currentCode = () => collab?.text.toString() || ""
 
   // Run, review and the assistant all use the server's copy of the document,
   // so only the room id is sent.
   const handleRunCode = () => {
-    if (!currentCode()) return
+    if (!currentCode().trim()) {
+      print("The file is empty. Write something to run.")
+      return
+    }
     setIsRunning(true)
-    const emitted = runCode(roomId)
-    if (!emitted) {
+    if (!runCode(roomId)) {
       setIsRunning(false)
-      setConsoleOutput((prev) => `${prev}\n[Error] Not connected to backend server. Please restart backend and try again.\n`)
+      print(NOT_CONNECTED)
     }
   }
 
-  const sendProgram = (input) => {
-    sendProgramInput(roomId, input)
+  const handleLanguage = (next) => {
+    if (next === language) return
+    const hasCode = currentCode().trim().length > 0
+    if (hasCode && !window.confirm(`Switch everyone to ${LANGUAGES.find((l) => l.id === next).label}? This replaces the file with a starter template.`)) {
+      return
+    }
+    setLanguage(next)
+    changeLanguage(roomId, next)
   }
 
-  const handleLanguage = (nextLanguage) => {
-    setLanguage(nextLanguage)
-    changeLanguage(roomId, nextLanguage)
+  const copyRoomId = async () => {
+    await navigator.clipboard.writeText(roomId)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
   }
-
-  const copyRoomId = () => navigator.clipboard.writeText(roomId)
 
   const leaveRoom = () => {
     disconnectSocket()
@@ -208,278 +229,119 @@ ${message}
   }
 
   const downloadCode = () => {
-    const blob = new Blob([currentCode()])
     const a = document.createElement("a")
-    a.href = URL.createObjectURL(blob)
-    a.download = `Main.${language}`
+    a.href = URL.createObjectURL(new Blob([currentCode()], { type: "text/plain" }))
+    a.download = file
     a.click()
+    URL.revokeObjectURL(a.href)
   }
 
-  const resetCode = () => {
-    collab?.clear()
+  const clearFile = () => {
+    if (window.confirm("Clear the file for everyone in the room? Ctrl+Z brings it back.")) collab?.clear()
   }
 
   const handleReviewCode = () => {
-    if (!currentCode()) return
+    if (!currentCode().trim()) return
     setShowReview(true)
-    const emitted = reviewCode(roomId)
-    if (!emitted) {
-      setReviewData({
-        success: false,
-        error: "Not connected to backend server. Please restart backend and try again."
-      })
+    if (!reviewCode(roomId)) {
+      setReviewData({ success: false, error: NOT_CONNECTED })
       setIsReviewing(false)
     }
   }
 
   const handleAskAssistant = (question) => {
-    if (!question || !question.trim()) return
     setShowAssistant(true)
-    const emitted = askCodingAssistant(roomId, question)
-    if (!emitted) {
-      setIsAssistantLoading(false)
-      setAssistantLoadingMeta(null)
+    if (!askCodingAssistant(roomId, question)) {
       setAssistantMessages((prev) => [
         ...prev,
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          question,
-          askedBy: location.state?.username || "You",
-          replyingTo: location.state?.username || "You",
-          success: false,
-          error: "Not connected to backend server. Please restart backend and try again."
-        }
+        { id: `${Date.now()}-${Math.random()}`, question, askedBy: username, success: false, error: NOT_CONNECTED }
       ])
     }
   }
 
   return (
-    <div className="h-full w-full flex-1 w-screen flex flex-col bg-slate-50 dark:bg-[#1e293b] text-slate-900 dark:text-white overflow-y-auto lg:overflow-hidden">
-      <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        {showSidebar && (
-          <div
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-            onClick={() => setShowSidebar(false)}
-          />
-        )}
+    <div className="flex h-full flex-col">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-panel px-3 sm:gap-3 sm:px-4">
+        <Brand compact />
+        <span className="hidden h-5 w-px bg-line sm:block" />
+        <button
+          type="button"
+          onClick={copyRoomId}
+          title="Copy the room ID to share it"
+          className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 font-mono text-[12px] text-ink hover:bg-sunk"
+        >
+          <span className="truncate">{roomId}</span>
+          {copied ? <Check className="size-3.5 shrink-0 text-moss" /> : <Copy className="size-3.5 shrink-0 text-muted" />}
+          <span className="sr-only" aria-live="polite">{copied ? "Room ID copied" : ""}</span>
+        </button>
 
-        <aside className={`
-          w-52 bg-white dark:bg-[#0f172a] border-r border-slate-200 dark:border-slate-700/50 flex flex-col min-h-0 shrink-0
-          fixed lg:relative inset-y-0 left-0 z-50
-          transform transition-transform duration-300 ease-in-out
-          ${showSidebar ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-        `}>
-          <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700/50 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-slate-600 dark:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Members</span>
-            </div>
+        <div className="ml-auto flex items-center gap-1 sm:gap-2">
+          <Presence members={members} colors={cursorColors} me={username} />
+          <span className="mx-1 hidden h-5 w-px bg-line sm:block" />
+          <ThemeToggle />
+          <Button variant="ghost" size="sm" onClick={leaveRoom} title="Leave the room">
+            <LogOut />
+            <span className="hidden sm:inline">Leave</span>
+          </Button>
+        </div>
+      </header>
+
+      <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-line bg-panel px-3 sm:px-4">
+        <div role="radiogroup" aria-label="Language" className="flex shrink-0 rounded-md bg-sunk p-0.5">
+          {LANGUAGES.map((l) => (
             <button
-              className="lg:hidden p-1 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-400"
-              onClick={() => setShowSidebar(false)}
+              key={l.id}
+              type="button"
+              role="radio"
+              aria-checked={language === l.id}
+              onClick={() => handleLanguage(l.id)}
+              className={`h-7 rounded-[5px] px-3 text-[13px] font-medium transition-colors ${
+                language === l.id ? "bg-panel text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"
+              }`}
             >
-              <X className="h-4 w-4" />
+              {l.label}
             </button>
-          </div>
+          ))}
+        </div>
 
-          <div className="flex-1 min-h-0 overflow-auto p-3">
-            <ul className="space-y-2">
-              {members.map((m) => (
-                <Client key={m.socketId} name={m.username} />
-              ))}
-            </ul>
-          </div>
+        <span className="hidden shrink-0 pl-2 font-mono text-[12px] text-muted md:inline">{file}</span>
+        <Button variant="ghost" size="icon" onClick={downloadCode} aria-label={`Download ${file}`} title={`Download ${file}`}>
+          <Download />
+        </Button>
+        <Button variant="ghost" size="icon" onClick={clearFile} aria-label="Clear the file" title="Clear the file">
+          <Eraser />
+        </Button>
 
-          <div className="p-3 space-y-2 border-t border-slate-200 dark:border-slate-700/50 shrink-0">
-            <Button
-              onClick={copyRoomId}
-              className="w-full bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm py-2 px-3 rounded flex items-center justify-center gap-2 transition-colors"
-            >
-              <Copy className="h-3.5 w-3.5" />
-              Copy Room ID
-            </Button>
-            <Button
-              onClick={leaveRoom}
-              className="w-full bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 text-white text-sm py-2 px-3 rounded flex items-center justify-center gap-2 transition-colors"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              Leave Room
-            </Button>
-          </div>
-        </aside>
-
-        <main className="flex flex-1 min-h-0 overflow-hidden flex-col lg:flex-row">
-          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="bg-slate-100 dark:bg-[#1e293b] border-b border-slate-200 dark:border-slate-700/50 px-2 sm:px-4 py-2 lg:py-0 shrink-0">
-              <div className="hidden lg:flex h-11 items-center gap-2 sm:gap-3">
-                <select
-                  value={language}
-                  onChange={e => handleLanguage(e.target.value)}
-                  className="bg-white dark:bg-[#334155] border border-slate-300 dark:border-slate-600 rounded px-2 sm:px-3 py-1.5 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="java">Java</option>
-                  <option value="cpp">C++</option>
-                  <option value="python">Python</option>
-                </select>
-
-                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm">
-                  <Code2 className="h-4 w-4" />
-                  <span className="text-slate-700 dark:text-slate-300">Main</span>
-                  <span className="text-slate-400 dark:text-slate-500">.{language === "java" ? "java" : language === "cpp" ? "cpp" : "py"}</span>
-                </div>
-
-                <button
-                  onClick={downloadCode}
-                  className="ml-auto p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
-                  title="Download"
-                >
-                  <Download className="h-4 w-4" />
-                </button>
-
-                <button
-                  onClick={resetCode}
-                  className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
-                  title="Reset Code"
-                >
-                  <RefreshCcw className="h-4 w-4" />
-                </button>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleReviewCode}
-                    disabled={isReviewing}
-                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 disabled:bg-purple-300 dark:disabled:bg-purple-800 disabled:opacity-50 text-white px-2 sm:px-4 py-1.5 rounded flex items-center gap-1 sm:gap-2 text-xs sm:text-sm font-medium transition-colors"
-                    title="AI Code Review"
-                  >
-                    <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                    <span className="hidden sm:inline">Review</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowAssistant(true)}
-                    className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-2 sm:px-4 py-1.5 rounded flex items-center gap-1 sm:gap-2 text-xs sm:text-sm font-medium transition-colors"
-                    title="AI Coding Assistant"
-                  >
-                    <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                    <span className="hidden sm:inline">Assist</span>
-                  </button>
-                </div>
-
-                <button
-                  onClick={handleRunCode}
-                  disabled={isRunning}
-                  className="bg-green-600 hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700 disabled:bg-green-300 dark:disabled:bg-green-800 disabled:opacity-50 text-white px-2 sm:px-4 py-1.5 rounded flex items-center gap-1 sm:gap-2 text-xs sm:text-sm font-medium transition-colors"
-                >
-                  <Play className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">Run Code</span>
-                </button>
-              </div>
-
-              <div className="lg:hidden flex flex-col gap-2">
-                <div className="h-10 flex items-center gap-2">
-                  <button
-                    onClick={() => setShowSidebar(true)}
-                    className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white shrink-0"
-                    title="Members"
-                  >
-                    <Menu className="h-4 w-4" />
-                  </button>
-
-                  <select
-                    value={language}
-                    onChange={e => handleLanguage(e.target.value)}
-                    className="bg-white dark:bg-[#334155] border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shrink-0"
-                  >
-                    <option value="java">Java</option>
-                    <option value="cpp">C++</option>
-                    <option value="python">Python</option>
-                  </select>
-
-                  <span className="text-xs text-slate-500 dark:text-slate-400 truncate">Main.{language === "java" ? "java" : language === "cpp" ? "cpp" : "py"}</span>
-                </div>
-
-                <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-                  <button
-                    onClick={downloadCode}
-                    className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors shrink-0"
-                    title="Download"
-                  >
-                    <Download className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    onClick={resetCode}
-                    className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors shrink-0"
-                    title="Reset Code"
-                  >
-                    <RefreshCcw className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    onClick={handleReviewCode}
-                    disabled={isReviewing}
-                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 disabled:bg-purple-300 dark:disabled:bg-purple-800 disabled:opacity-50 text-white px-2 py-1.5 rounded flex items-center gap-1 text-xs font-medium transition-colors shrink-0"
-                    title="AI Code Review"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Review
-                  </button>
-
-                  <button
-                    onClick={() => setShowAssistant(true)}
-                    className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-2 py-1.5 rounded flex items-center gap-1 text-xs font-medium transition-colors shrink-0"
-                    title="AI Coding Assistant"
-                  >
-                    <Bot className="h-3.5 w-3.5" />
-                    Assist
-                  </button>
-
-                  <button
-                    onClick={() => setShowConsole((prev) => !prev)}
-                    className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-100 px-2 py-1.5 rounded flex items-center gap-1 text-xs font-medium transition-colors shrink-0"
-                    title={showConsole ? "Hide Console" : "Show Console"}
-                  >
-                    <Terminal className="h-3.5 w-3.5" />
-                    {showConsole ? "Hide" : "Term"}
-                  </button>
-
-                  <button
-                    onClick={handleRunCode}
-                    disabled={isRunning}
-                    className="bg-green-600 hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700 disabled:bg-green-300 dark:disabled:bg-green-800 disabled:opacity-50 text-white px-2 py-1.5 rounded flex items-center gap-1 text-xs font-medium transition-colors shrink-0"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    Run
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-1 min-h-0 bg-white dark:bg-[#0f172a] overflow-hidden">
-              <CodeEditor
-                language={language}
-                collab={collab}
-                editorRef={editorRef}
-              />
-            </div>
-          </div>
-
-          <div className={`
-            bg-white dark:bg-[#0f172a] border-l border-slate-200 dark:border-slate-700/50 flex flex-col min-h-0
-            lg:w-[400px] lg:block
-            ${showConsole ? "h-[36vh] min-h-44 lg:h-auto border-t lg:border-t-0" : "hidden lg:flex"}
-          `}>
-            <Console
-              consoleOutput={consoleOutput}
-              isExecuting={isRunning}
-              onInput={sendProgram}
-              runningUser={runningUser}
-            />
-          </div>
-        </main>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <Button variant="quiet" size="sm" onClick={handleReviewCode} disabled={isReviewing}>
+            <Sparkles />
+            {isReviewing ? "Reviewing…" : "Review"}
+          </Button>
+          <Button variant="quiet" size="sm" onClick={() => setShowAssistant(true)}>
+            <MessageSquareText />
+            Ask
+          </Button>
+          <Button variant="run" size="sm" onClick={handleRunCode} disabled={isRunning} title="Run the file for everyone">
+            <Play />
+            {isRunning ? "Running…" : "Run"}
+          </Button>
+        </div>
       </div>
+
+      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div className="min-h-[45vh] flex-1 bg-panel lg:min-h-0">
+          <CodeEditor language={language} collab={collab} editorRef={editorRef} />
+        </div>
+        <aside className="h-[38vh] shrink-0 border-t border-line lg:h-auto lg:w-[400px] lg:border-l lg:border-t-0">
+          <Console
+            consoleOutput={consoleOutput}
+            isExecuting={isRunning}
+            onInput={(input) => sendProgramInput(roomId, input)}
+            onClear={() => setConsoleOutput("")}
+            runningUser={runningUser}
+          />
+        </aside>
+      </main>
 
       <CodeReview
         isOpen={showReview}
@@ -487,6 +349,7 @@ ${message}
         isLoading={isReviewing}
         reviewData={reviewData}
         reviewingUser={reviewingUser}
+        fileName={file}
       />
 
       <CodeAssistant

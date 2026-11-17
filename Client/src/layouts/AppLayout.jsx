@@ -1,39 +1,32 @@
 import { Outlet } from "react-router-dom"
-import { Code2, Github } from "lucide-react"
-import { Link } from "react-router-dom"
-import { ThemeToggle } from "./../components/ThemeToggle"
+import { Brand } from "../components/ui/Brand"
+import { ThemeToggle } from "../components/ThemeToggle"
+
+const REPO = "https://github.com/ankitsingathia/codetogether"
 
 export default function AppLayout() {
   return (
-    <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-
-      {/* Header */}
-      <header className="px-6  lg:px-16 h-10 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
-        <Link to="/" className="flex items-center gap-2 font-bold text-lg">
-          <Code2 className="h-5 w-5" />
-          real-time-collaborative-coding-platform
-        </Link>
-        <ThemeToggle />
+    <div className="min-h-full flex flex-col bg-paper text-ink">
+      <header className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
+        <Brand />
+        <nav className="flex items-center gap-1">
+          <a href={REPO} target="_blank" rel="noreferrer" className="rounded-md px-3 py-1.5 text-[14px] text-muted hover:text-ink">
+            Source
+          </a>
+          <ThemeToggle />
+        </nav>
       </header>
 
-      {/* Page content */}
       <main className="flex-1">
         <Outlet />
       </main>
 
-      <footer className="border-t border-gray-200 dark:border-gray-800 h-10 flex items-center justify-center gap-2 text-xs">
-        <span className="text-gray-500 dark:text-gray-400">
-          Built for coders • real-time-collaborative-coding-platform
-        </span>
-
-        <Link
-          to="https://github.com/ankitsingathia"
-          target="_blank"
-        >
-          <Github className="h-4 w-4" />
-        </Link>
+      <footer className="border-t border-line">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-6 text-[13px] text-muted sm:px-6">
+          <span>Built by Ankit Singathia</span>
+          <span className="font-mono text-[11px]">React · Socket.IO · Yjs · Docker</span>
+        </div>
       </footer>
-
     </div>
   )
 }

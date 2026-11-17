@@ -2,13 +2,106 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Two cursor colours carry the identity: marigold and cobalt are the two
+   people in the demo and the logo. Moss is used only for running code. */
+:root {
+  --paper: #edf0eb;
+  --panel: #ffffff;
+  --sunk: #f5f7f4;
+  --ink: #15201c;
+  --muted: #5b6862;
+  --line: #d5dbd5;
+  --cobalt: #2648d8;
+  --marigold: #e39b12;
+  --moss: #23784a;
+  --danger: #c2412d;
+  --syn-kw: #23784a;
+  --syn-str: #b4532a;
+  --on-accent: #ffffff;
+  color-scheme: light;
+}
+
+.dark {
+  --paper: #0e1412;
+  --panel: #151d1a;
+  --sunk: #0b100e;
+  --ink: #e4eae6;
+  --muted: #8e9a94;
+  --line: #26312c;
+  --cobalt: #6f8bff;
+  --marigold: #f2b33d;
+  --moss: #4cb37a;
+  --danger: #f07a63;
+  --syn-kw: #4cb37a;
+  --syn-str: #e08a5e;
+  --on-accent: #0b100e;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-sunk: var(--sunk);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-cobalt: var(--cobalt);
+  --color-marigold: var(--marigold);
+  --color-moss: var(--moss);
+  --color-danger: var(--danger);
+  --color-on-accent: var(--on-accent);
+
+  --font-display: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, "Cascadia Mono", monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--cobalt) 22%, transparent);
+}
+
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
-input:-webkit-autofill:focus,
-input:-webkit-autofill:active {
-  -webkit-box-shadow: 0 0 0 1000px #111827 inset !important;
-  /* dark bg */
-  -webkit-text-fill-color: #e5e7eb !important;
-  /* light text */
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--panel) inset !important;
+  -webkit-text-fill-color: var(--ink) !important;
   transition: background-color 9999s ease-in-out 0s;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+.drawer-in {
+  animation: drawer-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

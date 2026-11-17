@@ -1,75 +1,66 @@
-import { Link } from "react-router-dom"
-import { Code2, ArrowRight, Users, Terminal, Bot } from "lucide-react"
-import { Button } from "./../components/ui/Button"
-import { ThemeToggle } from "./../components/ThemeToggle"
+import { ArrowRight } from "lucide-react"
+import { Button } from "../components/ui/Button"
+import { PairDemo } from "../components/PairDemo"
+
+const FACTS = [
+  {
+    title: "Edits merge. Nobody gets overwritten.",
+    body: "The file is a Yjs CRDT. Two people typing on the same line both keep their work, and Ctrl+Z only undoes your own edits.",
+  },
+  {
+    title: "Runs are sandboxed.",
+    body: "Each run gets its own Docker container with no network, 256 MB of memory and a 5-second limit. The output streams to everyone in the room.",
+  },
+  {
+    title: "A reviewer when you're stuck.",
+    body: "Gemini reviews the file or answers questions about it, and keeps a short memory of what the room has already asked.",
+  },
+]
 
 export default function HomePage() {
   return (
-    <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-
-      {/* ================= HERO SECTION ================= */}
-      <main className="flex-1 flex items-center justify-center">
-        <section className="w-full max-w-7xl px-4 text-center">
-          <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl lg:text-6xl/none">
-            Real-time Collaborative Code Editor
-          </h1>
-
-          <p className="mx-auto max-w-[700px] text-gray-500 md:text-xl dark:text-gray-400 my-2 mb-8">
-            Write, execute, and collaborate on code in real time.
-            Support for multiple programming languages, secure execution environments, and instant updates for all participants.
+    <>
+      <section className="mx-auto grid max-w-6xl items-center gap-12 px-4 pb-20 pt-10 sm:px-6 lg:grid-cols-[1fr_1.15fr] lg:gap-16 lg:pt-20">
+        <div>
+          <p className="mb-6 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+            Shared editor · Java · C++ · Python
           </p>
-
-          <div className="flex justify-center gap-4">
-            <Link to="/create-room">
-              <Button className="flex items-center gap-2">
-                Get Started
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-
-            <Link
-              to="https://github.com/ankitsingathia/codetogether"
-              target="_blank"
-            >
-              <Button variant="outline">
-                View GitHub
-              </Button>
-            </Link>
+          <h1 className="font-display text-[44px] font-extrabold leading-[0.98] tracking-[-0.04em] sm:text-[58px] lg:text-[68px]">
+            One file.
+            <br />
+            Everyone&rsquo;s cursor.
+          </h1>
+          <p className="mt-6 max-w-md text-[17px] leading-relaxed text-muted">
+            Open a room, send the ID to whoever you&rsquo;re coding with, and write in the same file at the same time.
+            Run it in a sandbox and everyone sees the output.
+          </p>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <Button to="/create-room" state={{ newRoom: true }}>
+              Start a room
+              <ArrowRight />
+            </Button>
+            <Button to="/create-room" variant="quiet">
+              Join with a room ID
+            </Button>
           </div>
-        </section>
-      </main>
-
-      {/* ================= FUNCTIONALITY SECTION ================= */}
-      <section className="w-full border-t border-gray-200 dark:border-gray-800 py-16">
-        <div className="max-w-5xl mx-auto px-4 grid gap-10 md:grid-cols-3 text-center">
-
-          <div className="flex flex-col items-center gap-3">
-            <Users className="h-8 w-8 text-blue-600" />
-            <h3 className="text-lg font-semibold">Live Collaboration</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Multiple users can edit the same codebase in real time.
-            </p>
-          </div>
-
-          <div className="flex flex-col items-center gap-3">
-            <Terminal className="h-8 w-8 text-green-600" />
-            <h3 className="text-lg font-semibold">Code Execution</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Run code and view output instantly inside a shared terminal.
-            </p>
-          </div>
-
-          <div className="flex flex-col items-center gap-3">
-            <Bot className="h-8 w-8 text-indigo-600" />
-            <h3 className="text-lg font-semibold">AI-Powered Support</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Get instant code reviews and ask AI coding questions while you build.
-            </p>
-          </div>
-
         </div>
+
+        <PairDemo />
       </section>
 
-    </div>
+      <section className="border-t border-line">
+        <dl className="mx-auto grid max-w-6xl px-4 sm:px-6 md:grid-cols-3">
+          {FACTS.map((fact) => (
+            <div
+              key={fact.title}
+              className="border-b border-line py-8 last:border-b-0 md:border-b-0 md:border-l md:px-8 md:first:border-l-0 md:first:pl-0 md:last:pr-0"
+            >
+              <dt className="font-display text-[18px] font-bold tracking-[-0.01em]">{fact.title}</dt>
+              <dd className="mt-2 text-[15px] leading-relaxed text-muted">{fact.body}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+    </>
   )
 }

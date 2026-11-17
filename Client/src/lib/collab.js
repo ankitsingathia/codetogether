@@ -9,7 +9,9 @@ import {
 // Marks changes that came from the server, so they aren't sent straight back.
 const REMOTE = "remote"
 
-const COLORS = ["#e11d48", "#2563eb", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#db2777", "#65a30d"]
+// Readable on both the light and dark editor themes; white text sits on
+// each as a name label.
+const COLORS = ["#d98a0b", "#2648d8", "#23784a", "#c2412d", "#7b4fd6", "#0e8a9a", "#b83a7e", "#5e7f12"]
 
 export function createCollab(socket, roomId, username) {
   const doc = new Y.Doc()

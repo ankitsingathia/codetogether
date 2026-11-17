@@ -1,40 +1,38 @@
+import { Link } from "react-router-dom"
+
 const variants = {
-  primary: `
-    bg-blue-600 text-white
-    hover:bg-blue-700
-    active:bg-blue-800
-    focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
-    dark:bg-blue-500
-    dark:hover:bg-blue-600
-    dark:active:bg-blue-700
-  `,
-  outline: `
-    border border-gray-300 text-gray-900
-    hover:bg-gray-100
-    active:bg-gray-200
-    focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2
-    dark:border-gray-600 dark:text-gray-100
-    dark:hover:bg-gray-800
-    dark:active:bg-gray-700
-  `,
+  primary: "bg-cobalt text-on-accent hover:brightness-110 active:brightness-95 shadow-[inset_0_-1px_0_rgb(0_0_0/0.15)]",
+  run: "bg-moss text-on-accent hover:brightness-110 active:brightness-95 shadow-[inset_0_-1px_0_rgb(0_0_0/0.15)]",
+  quiet: "bg-panel text-ink border border-line hover:bg-sunk active:bg-paper",
+  ghost: "text-muted hover:text-ink hover:bg-sunk",
 }
 
-export function Button({
-  variant = "primary",
-  className = "",
-  ...props
-}) {
-  return (
-    <button
-      className={`
-        px-4 py-2 rounded-md text-sm font-medium
-        transition-colors duration-150
-        focus-visible:outline-none
-        disabled:opacity-50 disabled:pointer-events-none
-        ${variants[variant]}
-        ${className}
-      `}
-      {...props}
-    />
-  )
+const sizes = {
+  md: "h-10 px-4 text-[15px] gap-2",
+  sm: "h-8 px-3 text-[13px] gap-1.5",
+  icon: "h-8 w-8 justify-center",
+}
+
+function buttonClass({ variant = "primary", size = "md", className = "" } = {}) {
+  return [
+    "inline-flex items-center rounded-md font-medium whitespace-nowrap select-none",
+    "transition-[background-color,filter,color] duration-150",
+    "disabled:opacity-50 disabled:pointer-events-none",
+    "[&_svg]:size-4 [&_svg]:shrink-0",
+    variants[variant],
+    sizes[size],
+    className,
+  ].join(" ")
+}
+
+// A button, or a link styled as one when `to` is given.
+export function Button({ variant, size, className, to, ...props }) {
+  const cls = buttonClass({ variant, size, className })
+  if (to) {
+    const external = /^https?:/.test(to)
+    return external
+      ? <a href={to} target="_blank" rel="noreferrer" className={cls} {...props} />
+      : <Link to={to} className={cls} {...props} />
+  }
+  return <button type="button" className={cls} {...props} />
 }

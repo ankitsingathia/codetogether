@@ -85,6 +85,18 @@ export function executionEnded(cb) {
   socket.on("execution-ended", cb)
 }
 
+// The server refused a run (already running, too long, too many runs).
+export function onRunDenied(cb) {
+  socket.off("run-denied")
+  socket.on("run-denied", cb)
+}
+
+// The run is waiting for a free slot on the server.
+export function onExecutionQueued(cb) {
+  socket.off("execution-queued")
+  socket.on("execution-queued", cb)
+}
+
 export function onProgramOutput(callback) {
   socket.on("program-output", callback)
 }
@@ -151,6 +163,8 @@ export function disconnectSocket() {
     socket.off("room-state")
     socket.off("language-changed")
     socket.off("program-output")
+    socket.off("run-denied")
+    socket.off("execution-queued")
     socket.off("execution-started")
     socket.off("execution-ended")
     socket.off("review-started")

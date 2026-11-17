@@ -3,6 +3,7 @@ import * as Y from "yjs"
 import { applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness"
 
 import { saveMemory, toClientMessages } from "../ai/memory.js"
+import { LIMITS, isRoomId, isUsername } from "../limits.js"
 import {
   assistantMemory, defaultCode, fullState, getOrCreateRoom, getRoom, isMember, isNameTaken,
   leaveAll, replaceCode
@@ -17,18 +18,32 @@ function sendAssistantHistory(socket, room) {
 }
 
 // Socket.IO delivers binary as a Buffer on the server; Yjs wants a Uint8Array.
+// Oversized messages are refused before Yjs parses them.
 function toBytes(update) {
-  if (update instanceof Uint8Array) return update
-  if (update instanceof ArrayBuffer) return new Uint8Array(update)
-  return null
+  const bytes = update instanceof Uint8Array ? update
+    : update instanceof ArrayBuffer ? new Uint8Array(update)
+      : null
+  return bytes && bytes.length <= LIMITS.updateBytes ? bytes : null
 }
 
 export function registerRoomHandlers(io, socket, { onLeave }) {
-  socket.on("check-username", ({ roomId, username }) => {
+  socket.on("check-username", ({ roomId, username } = {}) => {
+    if (!isRoomId(roomId) || !isUsername(username)) {
+      socket.emit("username-status", { available: false })
+      return
+    }
     socket.emit("username-status", { available: !isNameTaken(getRoom(roomId), username) })
   })
 
-  socket.on("join-room", ({ roomId, username }) => {
+  socket.on("join-room", ({ roomId, username } = {}) => {
+    if (!isRoomId(roomId)) {
+      socket.emit("join-error", { message: "Room IDs look like abc-defg-hij." })
+      return
+    }
+    if (!isUsername(username)) {
+      socket.emit("join-error", { message: "Names are 1-20 letters, numbers, spaces, dots, dashes or underscores." })
+      return
+    }
     const room = getOrCreateRoom(roomId)
     const alreadyIn = isMember(room, socket.id)
 
@@ -55,7 +70,7 @@ export function registerRoomHandlers(io, socket, { onLeave }) {
     sendAssistantHistory(socket, room)
   })
 
-  socket.on("request-room-state", ({ roomId }) => {
+  socket.on("request-room-state", ({ roomId } = {}) => {
     const room = getRoom(roomId)
     if (!room) {
       socket.emit("room-state", { success: false, message: "Room not found" })
@@ -71,7 +86,7 @@ export function registerRoomHandlers(io, socket, { onLeave }) {
   })
 
   // An edit from one member: merge it into the room's copy and pass it on.
-  socket.on("yjs-update", ({ roomId, update }) => {
+  socket.on("yjs-update", ({ roomId, update } = {}) => {
     const room = getRoom(roomId)
     const bytes = toBytes(update)
     if (!room || !bytes || !isMember(room, socket.id)) return
@@ -84,7 +99,7 @@ export function registerRoomHandlers(io, socket, { onLeave }) {
     socket.to(roomId).emit("yjs-update", { update: bytes })
   })
 
-  socket.on("awareness-update", ({ roomId, update }) => {
+  socket.on("awareness-update", ({ roomId, update } = {}) => {
     const room = getRoom(roomId)
     const bytes = toBytes(update)
     if (!room || !bytes || !isMember(room, socket.id)) return
@@ -97,7 +112,7 @@ export function registerRoomHandlers(io, socket, { onLeave }) {
     socket.to(roomId).emit("awareness-update", { update: bytes })
   })
 
-  socket.on("change-language", ({ roomId, language }) => {
+  socket.on("change-language", ({ roomId, language } = {}) => {
     const room = getRoom(roomId)
     if (!room || !isMember(room, socket.id) || !defaultCode(language)) return
 

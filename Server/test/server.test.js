@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { createHash } from "node:crypto"
 import { io } from "socket.io-client"
 import * as Y from "yjs"
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness"
@@ -67,6 +68,13 @@ async function until(check, what) {
   }
 }
 
+// A room id in the format the client generates (abc-defg-hij), derived from
+// a readable name so each test gets its own room.
+function room(name) {
+  const h = createHash("md5").update(name).digest("hex")
+  return `${h.slice(0, 3)}-${h.slice(3, 7)}-${h.slice(7, 10)}`
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 before(async () => {
@@ -107,10 +115,10 @@ test("starts without a Gemini key and answers HTTP", async () => {
 
 test("a new room starts with the Java template", async () => {
   const socket = connect()
-  attachDoc(socket, "room-template")
+  attachDoc(socket, room("template"))
   const language = next(socket, "language-changed")
   const state = next(socket, "yjs-update")
-  socket.emit("join-room", { roomId: "room-template", username: "alice" })
+  socket.emit("join-room", { roomId: room("template"), username: "alice" })
 
   assert.equal((await language).language, "java")
   const doc = new Y.Doc()
@@ -119,21 +127,21 @@ test("a new room starts with the Java template", async () => {
 })
 
 test("usernames are unique within a room, ignoring case", async () => {
-  await join("room-names", "alice")
+  await join(room("names"), "alice")
 
   const other = connect()
   const status = next(other, "username-status")
-  other.emit("check-username", { roomId: "room-names", username: "ALICE" })
+  other.emit("check-username", { roomId: room("names"), username: "ALICE" })
   assert.equal((await status).available, false)
 
   const error = next(other, "join-error")
-  other.emit("join-room", { roomId: "room-names", username: "Alice" })
+  other.emit("join-room", { roomId: room("names"), username: "Alice" })
   assert.match((await error).message, /already taken/)
 })
 
 test("two people typing at the same moment both keep their edits", async () => {
-  const alice = await join("room-crdt", "alice")
-  const bob = await join("room-crdt", "bob")
+  const alice = await join(room("crdt"), "alice")
+  const bob = await join(room("crdt"), "bob")
   await until(() => alice.text() === bob.text(), "both copies to start equal")
   const original = alice.text()
 
@@ -147,13 +155,13 @@ test("two people typing at the same moment both keep their edits", async () => {
   assert.match(alice.text(), /bob was here/)
 
   // Someone joining afterwards gets the same merged text from the server.
-  const carol = await join("room-crdt", "carol")
+  const carol = await join(room("crdt"), "carol")
   assert.equal(carol.text(), alice.text())
 })
 
 test("concurrent edits at the same position converge to the same text", async () => {
-  const alice = await join("room-same-spot", "alice")
-  const bob = await join("room-same-spot", "bob")
+  const alice = await join(room("same-spot"), "alice")
+  const bob = await join(room("same-spot"), "bob")
   await until(() => alice.text() === bob.text(), "both copies to start equal")
 
   for (let i = 0; i < 20; i++) {
@@ -167,8 +175,8 @@ test("concurrent edits at the same position converge to the same text", async ()
 })
 
 test("an edit is not echoed back to the person who made it", async () => {
-  const alice = await join("room-echo", "alice")
-  const bob = await join("room-echo", "bob")
+  const alice = await join(room("echo"), "alice")
+  const bob = await join(room("echo"), "bob")
 
   let echoed = false
   alice.socket.on("yjs-update", () => (echoed = true))
@@ -180,11 +188,11 @@ test("an edit is not echoed back to the person who made it", async () => {
 })
 
 test("a socket that has not joined the room cannot edit it", async () => {
-  const alice = await join("room-closed", "alice")
+  const alice = await join(room("closed"), "alice")
   const before = alice.text()
 
   const outsider = connect()
-  const doc = attachDoc(outsider, "room-closed")
+  const doc = attachDoc(outsider, room("closed"))
   doc.getText("code").insert(0, "spam")
   await sleep(200)
 
@@ -192,36 +200,36 @@ test("a socket that has not joined the room cannot edit it", async () => {
 })
 
 test("a malformed update is dropped without crashing the server", async () => {
-  const alice = await join("room-garbage", "alice")
-  alice.socket.emit("yjs-update", { roomId: "room-garbage", update: new Uint8Array([1, 2, 3, 250, 99]) })
-  alice.socket.emit("yjs-update", { roomId: "room-garbage", update: "not bytes" })
+  const alice = await join(room("garbage"), "alice")
+  alice.socket.emit("yjs-update", { roomId: room("garbage"), update: new Uint8Array([1, 2, 3, 250, 99]) })
+  alice.socket.emit("yjs-update", { roomId: room("garbage"), update: "not bytes" })
   await sleep(100)
 
   assert.equal((await fetch(BASE_URL)).status, 200)
-  const bob = await join("room-garbage", "bob")
+  const bob = await join(room("garbage"), "bob")
   assert.equal(bob.text(), alice.text())
 })
 
 test("changing the language replaces the text for everyone", async () => {
-  const alice = await join("room-lang", "alice")
-  const bob = await join("room-lang", "bob")
+  const alice = await join(room("lang"), "alice")
+  const bob = await join(room("lang"), "bob")
 
   const changed = next(bob.socket, "language-changed")
-  alice.socket.emit("change-language", { roomId: "room-lang", language: "python" })
+  alice.socket.emit("change-language", { roomId: room("lang"), language: "python" })
   assert.equal((await changed).language, "python")
 
   await until(() => bob.text() === 'print("Hello, World!")', "bob to get the python template")
   await until(() => alice.text() === bob.text(), "alice to match")
 
   // An unknown language is ignored.
-  alice.socket.emit("change-language", { roomId: "room-lang", language: "rust" })
+  alice.socket.emit("change-language", { roomId: room("lang"), language: "rust" })
   await sleep(100)
   assert.equal(bob.text(), 'print("Hello, World!")')
 })
 
 test("a member's cursor disappears for others when they leave", async () => {
-  const alice = await join("room-cursor", "alice")
-  const bob = await join("room-cursor", "bob")
+  const alice = await join(room("cursor"), "alice")
+  const bob = await join(room("cursor"), "bob")
 
   const aliceAwareness = new Awareness(alice.doc)
   const bobAwareness = new Awareness(bob.doc)
@@ -230,7 +238,7 @@ test("a member's cursor disappears for others when they leave", async () => {
 
   aliceAwareness.setLocalStateField("user", { name: "alice" })
   alice.socket.emit("awareness-update", {
-    roomId: "room-cursor",
+    roomId: room("cursor"),
     update: encodeAwarenessUpdate(aliceAwareness, [alice.doc.clientID])
   })
   await until(() => bobAwareness.getStates().has(alice.doc.clientID), "bob to see alice's cursor")
@@ -243,29 +251,29 @@ test("a member's cursor disappears for others when they leave", async () => {
 })
 
 test("a room resets once everyone has left", async () => {
-  const first = await join("room-reset", "alice")
+  const first = await join(room("reset"), "alice")
   first.doc.getText("code").insert(0, "changed ")
   await sleep(100)
   first.socket.disconnect()
   await sleep(200)
 
-  const again = await join("room-reset", "alice")
+  const again = await join(room("reset"), "alice")
   assert.doesNotMatch(again.text(), /changed/)
   assert.match(again.text(), /public class Main/)
 })
 
 test("review and assistant requests without a key get an error, not a crash", async () => {
-  const { socket } = await join("room-ai", "alice")
+  const { socket } = await join(room("ai"), "alice")
 
   const review = next(socket, "review-result")
-  socket.emit("review-code", { roomId: "room-ai", code: "print(1)", language: "python" })
+  socket.emit("review-code", { roomId: room("ai"), code: "print(1)", language: "python" })
   const reviewResult = await review
   assert.equal(reviewResult.success, false)
   assert.match(reviewResult.error, /API key is missing/)
 
   const answer = next(socket, "assistant-result")
   socket.emit("assistant-query", {
-    roomId: "room-ai",
+    roomId: room("ai"),
     code: "print(1)",
     language: "python",
     question: "What does this print?"
@@ -276,4 +284,30 @@ test("review and assistant requests without a key get an error, not a crash", as
 
   // And the server is still up afterwards.
   assert.equal((await fetch(BASE_URL)).status, 200)
+})
+
+test("joins with a malformed room id or name are refused", async () => {
+  const socket = connect()
+
+  const badRoom = next(socket, "join-error")
+  socket.emit("join-room", { roomId: "../../etc", username: "alice" })
+  assert.match((await badRoom).message, /Room IDs look like/)
+
+  const badName = next(socket, "join-error")
+  socket.emit("join-room", { roomId: room("bad-name"), username: "<img src=x>" })
+  assert.match((await badName).message, /Names are/)
+})
+
+test("code over the size limit is refused before anything runs", async () => {
+  const alice = await join(room("too-long"), "alice")
+  alice.doc.getText("code").insert(0, "x".repeat(70 * 1024))
+  await sleep(150)
+
+  let started = false
+  alice.socket.on("execution-started", () => (started = true))
+  const denied = next(alice.socket, "run-denied")
+  alice.socket.emit("run-code", { roomId: room("too-long") })
+
+  assert.match((await denied).message, /too long to run/)
+  assert.equal(started, false)
 })

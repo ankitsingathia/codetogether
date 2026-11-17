@@ -69,11 +69,21 @@ empties, like everything else.
   last few turns. Once there are more than 8 turns or 1,200 characters, a
   second Gemini call folds the older turns into the summary, so long sessions
   don't grow the prompt without limit.
-- **Sandboxed code execution** (local only). `run-code` writes the code to a
-  temp folder for that job and runs it in a Docker container with
-  `--network none`, `--memory=256m`, `--cpus=1`, `--pids-limit=64` and a
-  5-second timeout, then deletes the folder. See
-  [`Server/src/execution/dockerCommand.js`](Server/src/execution/dockerCommand.js).
+- **Sandboxed code execution** (local only). Each run gets its own named
+  Docker container with `--network none`, `--memory=256m`, `--cpus=1`,
+  `--pids-limit=64` and no privilege escalation. The command is an argument
+  list, never a shell string. When a run passes 5 seconds or 64 KB of output,
+  the server kills the container by name. (Earlier it killed only the
+  `docker run` client, which left a looping program running.) See
+  [`Server/src/execution/`](Server/src/execution/).
+- **A job queue for runs.** At most `RUN_CONCURRENCY` containers (default 2) run
+  at once on the server. Other runs wait in arrival order and the room sees
+  its place in line. When 20 are waiting, new runs are refused instead of
+  starting more containers than the machine can hold.
+- **Limits on everything a client sends.** Room IDs and names are checked, code
+  over 64 KB isn't run or sent to Gemini, single edits over 256 KB are dropped,
+  and each person gets 10 runs and 6 AI requests a minute. See
+  [`Server/src/limits.js`](Server/src/limits.js).
 - **Runs without a Gemini key.** Editing, rooms and sync work without one. Review
   and assistant requests then get a "key missing" error instead of an answer.
 
@@ -147,6 +157,18 @@ cd Server
 npm test
 ```
 
+[`Server/test/execution.test.js`](Server/test/execution.test.js) tests the run
+pipeline without Docker, using a Node process in place of the container: a
+program that never ends is stopped and its container killed by name, a program
+that prints too much is cut off, the queue never runs more than its limit and
+keeps arrival order, a waiting run can be cancelled, and the input checks and
+rate limiter work.
+
+[`Server/test/docker.test.js`](Server/test/docker.test.js) runs real containers
+and is skipped unless `RUN_DOCKER_TESTS=1`. CI runs it in a separate job. It
+checks that a looping program's container is really gone after the time limit,
+and that the sandbox has no network.
+
 [`Server/test/server.test.js`](Server/test/server.test.js) starts the real
 server with no Gemini key and connects to it with Socket.IO clients, the way two
 browser tabs would. It checks that:
@@ -163,6 +185,8 @@ browser tabs would. It checks that:
 - changing the language replaces the text for everyone
 - a member's cursor disappears for the others when they leave
 - a room resets once everyone has left
+- a join with a malformed room ID or name is refused, and code over the size
+  limit is refused before anything runs
 - review and assistant requests without a key return an error and the server
   stays up
 

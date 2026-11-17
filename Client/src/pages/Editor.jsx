@@ -20,6 +20,8 @@ import {
   onRoomState,
   runCode,
   onProgramOutput,
+  onRunDenied,
+  onExecutionQueued,
   sendProgramInput,
   disconnectSocket,
   changeLanguage,
@@ -107,6 +109,18 @@ export default function EditorPage() {
 
     onLanguageChanged(({ language }) => {
       setLanguage(language)
+    })
+
+    onRunDenied(({ message }) => {
+      setIsRunning(false)
+      setConsoleOutput((prev) => `${prev}
+${message}
+`)
+    })
+
+    onExecutionQueued(({ position }) => {
+      setConsoleOutput((prev) => `${prev}Waiting for a free runner (number ${position} in line)...
+`)
     })
 
     onProgramOutput(({ output }) => {

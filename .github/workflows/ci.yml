@@ -22,6 +22,26 @@ jobs:
       # Starts the real server with no Gemini key and drives it over Socket.IO.
       - run: npm test
 
+  # Real containers: checks that a run that times out really stops its
+  # container, and that the sandbox has no network.
+  docker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Server/package-lock.json
+      - run: npm ci
+      - run: docker pull python:3
+      - run: node --test test/docker.test.js
+        env:
+          RUN_DOCKER_TESTS: "1"
+
   client:
     runs-on: ubuntu-latest
     defaults:

@@ -19,6 +19,8 @@ server.listen(config.port, "0.0.0.0", () => {
 // Render and most hosts send SIGTERM before stopping an instance. Closing the
 // sockets lets clients reconnect to another instance straight away.
 process.on("SIGTERM", async () => {
+  // If something still holds the process open, don't let a deploy wait on it.
+  setTimeout(() => process.exit(1), 5000).unref()
   await close()
-  server.close(() => process.exit(0))
+  process.exit(0)
 })

@@ -46,6 +46,7 @@ jobs:
   # cleanup across servers, plus the Redis store itself.
   redis:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     services:
       redis:
         image: redis:7
@@ -67,7 +68,7 @@ jobs:
           cache: npm
           cache-dependency-path: Server/package-lock.json
       - run: npm ci
-      - run: node --test test/store.test.js test/cluster.test.js 2>&1 | tee redis-tests.log; exit ${PIPESTATUS[0]}
+      - run: node --test --test-timeout=60000 --test-reporter=spec test/store.test.js test/cluster.test.js 2>&1 | tee redis-tests.log; exit ${PIPESTATUS[0]}
         shell: bash
         env:
           REDIS_URL: redis://localhost:6379
@@ -76,7 +77,7 @@ jobs:
       - if: failure()
         shell: bash
         run: |
-          details=$(grep -E -A12 "(not ok|✖|Error)" redis-tests.log | head -120 | sed -e 's/%/%25/g' | awk 'BEGIN { ORS = "%0A" } { print }')
+          details=$( (grep -E -A12 "(not ok|✖|Error|timed out|still running)" redis-tests.log || tail -60 redis-tests.log) | head -120 | sed -e 's/%/%25/g' | awk 'BEGIN { ORS = "%0A" } { print }')
           echo "::error title=Redis tests failed::${details}"
 
   client:

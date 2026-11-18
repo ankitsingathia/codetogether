@@ -60,8 +60,11 @@ export function createServer({ redisUrl = config.redisUrl } = {}) {
     registerAssistantHandlers(io, socket, { rooms, store })
   })
 
+  // Order matters: Socket.IO first (it unsubscribes the adapter, closes the
+  // sockets, then the HTTP server), Redis last. Quitting Redis first leaves
+  // the adapter's unsubscribe queued forever, and the process never exits.
   async function close() {
-    io.close()
+    await new Promise((resolve) => io.close(() => resolve()))
     await Promise.allSettled(redisClients.map((client) => client.quit()))
   }
 

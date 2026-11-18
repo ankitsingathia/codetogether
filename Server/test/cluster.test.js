@@ -85,17 +85,26 @@ before(async () => {
   await Promise.all([startServer("A", BASE_PORT), startServer("B", BASE_PORT + 1)])
 })
 
+// Stops a server, and kills it outright if it hasn't exited 3 s after
+// SIGTERM, saying so, so a shutdown that hangs shows up instead of stalling.
+async function stopServer(child, name) {
+  if (child.exitCode !== null || child.signalCode) return
+  const exited = new Promise((resolve) => child.once("exit", resolve))
+  child.kill("SIGTERM")
+  const timer = setTimeout(() => {
+    console.error(`server ${name} still running 3 s after SIGTERM; killing it`)
+    child.kill("SIGKILL")
+  }, 3000)
+  await exited
+  clearTimeout(timer)
+}
+
 after(async () => {
   for (const socket of sockets) socket.disconnect()
-  for (const child of servers) {
-    if (child.exitCode !== null) continue
-    const exited = new Promise((resolve) => child.once("exit", resolve))
-    child.kill()
-    await exited
-  }
+  await Promise.all(servers.map((child, i) => stopServer(child, ["A", "B"][i])))
   await redis?.quit()
   if (workDir) fs.rmSync(workDir, { recursive: true, force: true })
-})
+}, { timeout: 20_000 })
 
 test("both servers report that they share rooms through Redis", { skip }, async () => {
   for (const [name, url] of Object.entries(URLS)) {

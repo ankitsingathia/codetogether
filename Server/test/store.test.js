@@ -98,3 +98,25 @@ for (const [name, create] of stores) {
     })
   })
 }
+
+describe("messages between servers", () => {
+  test("a Yjs update survives the JSON trip through the Redis adapter", async () => {
+    const { toWire, fromWire } = await import("../src/rooms.js")
+    const update = seed("héllo, wörld").update
+
+    // What the adapter does to a server-side emit: JSON out, JSON back in.
+    const [received] = JSON.parse(JSON.stringify([toWire(update)]))
+    assert.equal(textOf([fromWire(received)]), "héllo, wörld")
+
+    // A raw Uint8Array would not survive it, which is why the wire format exists.
+    const [raw] = JSON.parse(JSON.stringify([update]))
+    assert.equal(raw instanceof Uint8Array, false)
+  })
+
+  test("anything that isn't base64 text is refused", async () => {
+    const { fromWire } = await import("../src/rooms.js")
+    assert.equal(fromWire({ 0: 1, 1: 2 }), null)
+    assert.equal(fromWire(""), null)
+    assert.equal(fromWire(undefined), null)
+  })
+})

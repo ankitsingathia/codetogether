@@ -42,8 +42,14 @@ export const defaultCode = (language) => TEMPLATES[language]
 // again. An object, so it can't be mistaken for a socket id.
 const PEER = Object.freeze({ peer: true })
 
-const toBytes = (value) =>
-  value instanceof Uint8Array ? value : value instanceof ArrayBuffer ? new Uint8Array(value) : null
+// Messages between servers go through the Redis adapter as JSON, which turns
+// a Uint8Array into {"0": ..., "1": ...}. Binary is sent as base64 instead.
+export const toWire = (bytes) => Buffer.from(bytes).toString("base64")
+export function fromWire(value) {
+  if (typeof value !== "string" || !value) return null
+  const bytes = Buffer.from(value, "base64")
+  return bytes.length ? new Uint8Array(bytes) : null
+}
 
 export function createRooms({ io, store, cluster }) {
   const ready = new Map() // roomId -> room, for rooms this server has loaded
@@ -105,7 +111,7 @@ export function createRooms({ io, store, cluster }) {
 
   if (cluster) {
     io.on("ct:yjs", (roomId, update) => {
-      const bytes = toBytes(update)
+      const bytes = fromWire(update)
       if (!bytes) return
       fromPeer(roomId, (room) => {
         Y.applyUpdate(room.doc, bytes, PEER)
@@ -113,7 +119,7 @@ export function createRooms({ io, store, cluster }) {
       })
     })
     io.on("ct:awareness", (roomId, update) => {
-      const bytes = toBytes(update)
+      const bytes = fromWire(update)
       if (!bytes) return
       fromPeer(roomId, (room) => {
         applyAwarenessUpdate(room.awareness, bytes, PEER)
@@ -145,7 +151,7 @@ export function createRooms({ io, store, cluster }) {
     // so the caller can relay it to local clients without waiting.
     applyEdit(room, update, socketId) {
       Y.applyUpdate(room.doc, update, socketId)
-      toPeers("ct:yjs", room.roomId, update)
+      toPeers("ct:yjs", room.roomId, toWire(update))
       return store.appendUpdate(room.roomId, update)
     },
 
@@ -162,7 +168,7 @@ export function createRooms({ io, store, cluster }) {
       room.language = language
 
       toPeers("ct:language", room.roomId, language)
-      toPeers("ct:yjs", room.roomId, update)
+      toPeers("ct:yjs", room.roomId, toWire(update))
       await store.setLanguage(room.roomId, language)
       await store.appendUpdate(room.roomId, update)
       return update
@@ -175,7 +181,7 @@ export function createRooms({ io, store, cluster }) {
 
     applyCursor(room, update, socketId) {
       applyAwarenessUpdate(room.awareness, update, socketId)
-      toPeers("ct:awareness", room.roomId, update)
+      toPeers("ct:awareness", room.roomId, toWire(update))
     },
 
     // Removes a socket's cursors. Returns the update to send to the room, or
@@ -186,7 +192,7 @@ export function createRooms({ io, store, cluster }) {
       for (const id of ids) room.awarenessOwners.delete(id)
       removeAwarenessStates(room.awareness, ids, PEER)
       const update = encodeAwarenessUpdate(room.awareness, ids)
-      toPeers("ct:awareness", room.roomId, update)
+      toPeers("ct:awareness", room.roomId, toWire(update))
       return update
     },
 

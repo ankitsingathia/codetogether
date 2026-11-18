@@ -1,0 +1,35 @@
+# Render Blueprint: the server and the client as two free services.
+# In Render: New > Blueprint, pick this repo, enter GEMINI_API_KEY, apply.
+#
+# The two URLs below assume Render gives each service its own name as the
+# subdomain. If a name is taken, Render adds a suffix: then update
+# FRONTEND_ORIGIN and VITE_SOCKET_URL to the real URLs and redeploy both.
+services:
+  - type: web
+    name: ankit-codetogether-api
+    runtime: node
+    plan: free
+    rootDir: Server
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      # The client's address. The server refuses sockets from other origins.
+      - key: FRONTEND_ORIGIN
+        value: https://ankit-codetogether.onrender.com
+      - key: BACKEND_URL
+        value: https://ankit-codetogether-api.onrender.com
+
+  - type: web
+    name: ankit-codetogether
+    runtime: static
+    buildCommand: cd Client && npm ci && npm run build
+    staticPublishPath: ./Client/dist
+    autoDeployTrigger: commit
+    envVars:
+      # Read at build time: the server the browser connects to.
+      - key: VITE_SOCKET_URL
+        value: https://ankit-codetogether-api.onrender.com

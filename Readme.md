@@ -240,17 +240,24 @@ production build, on every push and pull request.
 
 ## Deploying your own instance
 
-Both services deploy free on Render:
+[`render.yaml`](render.yaml) is a Render Blueprint for both services on the free
+plan. In Render choose **New → Blueprint**, pick this repo, enter
+`GEMINI_API_KEY` when asked, and apply. It creates:
 
-| Service | Type | Root | Build | Start |
-|---|---|---|---|---|
-| Server | Web Service | `Server` | `npm install` | `npm start` |
-| Client | Static Site | `Client` | `npm install && npm run build` | publish `dist` |
+| Service | Type | Builds from | URL it expects |
+|---|---|---|---|
+| `ankit-codetogether-api` | Web service (Node) | `Server/` | `https://ankit-codetogether-api.onrender.com` |
+| `ankit-codetogether` | Static site | `Client/` → `Client/dist` | `https://ankit-codetogether.onrender.com` |
 
-Set `GEMINI_API_KEY` on the server and `VITE_SOCKET_URL` on the client (the
-server's URL). Once the client has a URL, set `FRONTEND_ORIGIN` on the server to
-it. The server rejects Socket.IO connections from any other origin (see
-[`Server/src/cors.js`](Server/src/cors.js)).
+The client needs the server's URL at build time (`VITE_SOCKET_URL`), and the
+server only accepts sockets from the client's URL (`FRONTEND_ORIGIN`, see
+[`Server/src/cors.js`](Server/src/cors.js)). If Render adds a suffix to either
+name because it is taken, set those two variables to the real URLs and redeploy
+both. Pushes to `main` redeploy each service.
+
+`REDIS_URL` is optional: it only matters with more than one server instance,
+which the free plan doesn't run. Code execution needs Docker, which Render's
+web services don't have, so the Run button reports that instead of running.
 
 ## Tech stack
 

@@ -67,9 +67,17 @@ jobs:
           cache: npm
           cache-dependency-path: Server/package-lock.json
       - run: npm ci
-      - run: node --test test/store.test.js test/cluster.test.js
+      - run: node --test test/store.test.js test/cluster.test.js 2>&1 | tee redis-tests.log; exit ${PIPESTATUS[0]}
+        shell: bash
         env:
           REDIS_URL: redis://localhost:6379
+      # Job logs need a GitHub login; annotations don't. Put the failures
+      # where anyone looking at the run can read them.
+      - if: failure()
+        shell: bash
+        run: |
+          details=$(grep -E -A12 "(not ok|✖|Error)" redis-tests.log | head -120 | sed -e 's/%/%25/g' | awk 'BEGIN { ORS = "%0A" } { print }')
+          echo "::error title=Redis tests failed::${details}"
 
   client:
     runs-on: ubuntu-latest

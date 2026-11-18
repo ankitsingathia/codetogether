@@ -40,7 +40,8 @@ export function registerRoomHandlers(io, socket, { rooms, store, onLeave }) {
 
     const members = await rooms.members(roomId)
     io.to(roomId).emit("members-update", members)
-    if (cursorRemoval) io.to(roomId).emit("awareness-update", { update: cursorRemoval })
+    // Other servers pass the removal to their own clients.
+    if (cursorRemoval) io.local.to(roomId).emit("awareness-update", { update: cursorRemoval })
     await rooms.afterLeave(roomId, members.length)
   }
 
@@ -119,7 +120,8 @@ export function registerRoomHandlers(io, socket, { rooms, store, onLeave }) {
     } catch {
       return // not a valid Yjs update; drop it rather than relay or store it
     }
-    socket.to(roomId).emit("yjs-update", { update: bytes })
+    // This server's other members; other servers relay it to theirs.
+    socket.local.to(roomId).emit("yjs-update", { update: bytes })
     saved.catch(logFailure("saving an edit"))
   })
 
@@ -133,7 +135,7 @@ export function registerRoomHandlers(io, socket, { rooms, store, onLeave }) {
     } catch {
       return
     }
-    socket.to(roomId).emit("awareness-update", { update: bytes })
+    socket.local.to(roomId).emit("awareness-update", { update: bytes })
   })
 
   socket.on("change-language", async ({ roomId, language } = {}) => {
@@ -143,7 +145,7 @@ export function registerRoomHandlers(io, socket, { rooms, store, onLeave }) {
     try {
       const update = await rooms.changeLanguage(room, language)
       io.to(roomId).emit("language-changed", { language })
-      io.to(roomId).emit("yjs-update", { update })
+      io.local.to(roomId).emit("yjs-update", { update })
     } catch (error) {
       logFailure("changing language")(error)
     }

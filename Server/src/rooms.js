@@ -14,6 +14,11 @@
 //   - a working copy of the document: on each server that has a member of the
 //     room connected, dropped when its last local member leaves
 //   - who is in the room: Socket.IO itself, asked across all servers
+//
+// Each server sends edits only to its own clients. Edits made on another
+// server arrive here first, are applied to this server's copy, and only then
+// go to this server's clients. So a server's copy and its clients always
+// agree, and someone joining can't miss an edit that was in flight.
 import * as Y from "yjs"
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness"
 
@@ -95,14 +100,25 @@ export function createRooms({ io, store, cluster }) {
     if (loading.has(roomId)) early.set(roomId, [...(early.get(roomId) || []), apply])
   }
 
+  // Sends to this server's members of the room only.
+  const toLocal = (roomId, event, payload) => io.local.to(roomId).emit(event, payload)
+
   if (cluster) {
     io.on("ct:yjs", (roomId, update) => {
       const bytes = toBytes(update)
-      if (bytes) fromPeer(roomId, (room) => Y.applyUpdate(room.doc, bytes, PEER))
+      if (!bytes) return
+      fromPeer(roomId, (room) => {
+        Y.applyUpdate(room.doc, bytes, PEER)
+        toLocal(roomId, "yjs-update", { update: bytes })
+      })
     })
     io.on("ct:awareness", (roomId, update) => {
       const bytes = toBytes(update)
-      if (bytes) fromPeer(roomId, (room) => applyAwarenessUpdate(room.awareness, bytes, PEER))
+      if (!bytes) return
+      fromPeer(roomId, (room) => {
+        applyAwarenessUpdate(room.awareness, bytes, PEER)
+        toLocal(roomId, "awareness-update", { update: bytes })
+      })
     })
     io.on("ct:language", (roomId, language) => {
       fromPeer(roomId, (room) => (room.language = language))
@@ -124,12 +140,13 @@ export function createRooms({ io, store, cluster }) {
     fullState: (room) => Y.encodeStateAsUpdate(room.doc),
 
     // An edit from a member. Merges it here straight away and throws if it
-    // isn't a valid Yjs update, so nothing malformed is ever stored. Returns a
-    // promise for recording it and passing it to the other servers, so the
-    // caller can relay it to clients without waiting for Redis.
+    // isn't a valid Yjs update, so nothing malformed is passed on or stored.
+    // Tells the other servers at once; returns a promise for the Redis write,
+    // so the caller can relay it to local clients without waiting.
     applyEdit(room, update, socketId) {
       Y.applyUpdate(room.doc, update, socketId)
-      return store.appendUpdate(room.roomId, update).then(() => toPeers("ct:yjs", room.roomId, update))
+      toPeers("ct:yjs", room.roomId, update)
+      return store.appendUpdate(room.roomId, update)
     },
 
     // Replaces the whole text with the new language's template. Returns the
@@ -144,10 +161,10 @@ export function createRooms({ io, store, cluster }) {
       const update = Y.encodeStateAsUpdate(room.doc, before)
       room.language = language
 
+      toPeers("ct:language", room.roomId, language)
+      toPeers("ct:yjs", room.roomId, update)
       await store.setLanguage(room.roomId, language)
       await store.appendUpdate(room.roomId, update)
-      toPeers("ct:yjs", room.roomId, update)
-      toPeers("ct:language", room.roomId, language)
       return update
     },
 
